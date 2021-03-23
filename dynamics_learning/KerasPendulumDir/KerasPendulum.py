@@ -18,7 +18,7 @@ def random_policy(obs, action_space):
 
 register(
     id='KerasPendulum-v0',
-    entry_point='rl_smoothness.envs.KerasPendulum:KerasPendulumEnv',
+    entry_point='KerasPendulum:KerasPendulumEnv',
     max_episode_steps=200,
 )
 
