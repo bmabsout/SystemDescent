@@ -18,7 +18,7 @@ def random_policy(obs, action_space):
 
 register(
     id='KerasPendulum-v0',
-    entry_point='KerasPendulum:KerasPendulumEnv',
+    entry_point='envs.KerasPendulumDir.KerasPendulum:KerasPendulumEnv',
     max_episode_steps=200,
 )
 
@@ -28,7 +28,7 @@ class KerasPendulumEnv(gym.Env):
         'video.frames_per_second': 30
     }
 
-    def __init__(self):
+    def __init__(self, model_path):
 
         self.max_speed = 8
         self.max_torque = 2.
@@ -47,8 +47,7 @@ class KerasPendulumEnv(gym.Env):
             dtype=np.float32
         )
         self.seed()
-        local_path = "saved/ff44f9/checkpoints/checkpoint50.tf"
-        self.model = keras.models.load_model("/home/bmabsout/Documents/gymfc-nf1/training_code/neuroflight_trainer/dynamics_learning/"+local_path)
+        self.model = keras.models.load_model(model_path)
         def run_nn(obs, action):
             return np.squeeze((self.model.predict([np.array([obs]), np.array([action])])))
 
