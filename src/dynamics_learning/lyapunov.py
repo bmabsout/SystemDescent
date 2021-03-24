@@ -10,9 +10,7 @@ from tensorflow.keras import layers
 from tensorflow.python.keras import losses
 
 
-def compile_lyapunov_model(X, state_shape, epsilon=0.001, hyper0=1, hyper_diff=1):
-	# X: The dataset 
-	# env: a gym env
+def compile_lyapunov_model(state_shape, epsilon=0.001, hyper0=1, hyper_diff=1):
 
 	def V_def():
 		inputs = keras.Input(shape=state_shape)
@@ -68,5 +66,5 @@ print("dynamics_model:")
 dynamics_model.summary()
 
 X = generate_dataset(dynamics_model,100_000)
-lyapunov_model = compile_lyapunov_model(X, env.observation_space.shape)
+lyapunov_model = compile_lyapunov_model(env.observation_space.shape)
 lyapunov_model.fit(X, epochs=10, batch_size=1024)
