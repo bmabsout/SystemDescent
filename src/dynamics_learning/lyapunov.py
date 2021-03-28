@@ -8,9 +8,9 @@ import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
 from tensorflow.python.keras import losses
+import argparse
 
-
-def compile_lyapunov_model(state_shape, epsilon=0.001, hyper0=1, hyper_diff=1):
+def compile_lyapunov_model(state_shape):
 
 	def V_def():
 		inputs = keras.Input(shape=state_shape)
@@ -40,14 +40,15 @@ def compile_lyapunov_model(state_shape, epsilon=0.001, hyper0=1, hyper_diff=1):
 	def lyapunov_loss(_, y_pred):
 		# V((1,0,0)) = 0 for no movement and pointing upwards
 		# V(f(x,u)) - V(x) < 0
+                # V(x) > 0
 		V_x = y_pred[0]
 		V_fxu = y_pred[1]
 		V_0 = y_pred[2]
-		return hyper0*tf.reduce_mean(V_0**2) + hyper_diff*tf.reduce_mean(tf.nn.relu(epsilon + V_x - V_fxu))
+		return tf.reduce_mean(V_0**2) + args.hyper_diff*tf.reduce_mean(tf.nn.relu(args.epsilon + V_x - V_fxu)) + args.hyper_psd * tf.reduce_mean(tf.nn.relu(args.epsilon - V_x))
 
 
 	full_model = full_model_def(V_def())
-	full_model.compile(loss=lyapunov_loss, optimizer=keras.optimizers.Adam(lr=0.01))
+	full_model.compile(loss=lyapunov_loss, optimizer=keras.optimizers.Adam(lr=args.lr))
 	return full_model
 
 def generate_dataset(dynamics_model, num_samples):
@@ -58,13 +59,25 @@ def generate_dataset(dynamics_model, num_samples):
 	# (1,0,0) means no movement and pointing upwards
 	return [x, fxu, p]
 
+parser = argparse.ArgumentParser()
+parser.add_argument("--ckpt_path",type=str,default="/home/bmabsout/Documents/gymfc-nf1/training_code/neuroflight_trainer/dynamics_learning/saved/ff44f9/checkpoints/checkpoint50.tf")
+parser.add_argument("--num_samples",type=int,default=100_000)
+parser.add_argument("--epochs",type=int,default=10)
+parser.add_argument("--batch_size", type=int,default=1024)
+parser.add_argument("--epsilon", type=float,default=0.001)
+parser.add_argument("--lr",type=float, default=0.01)
+parser.add_argument("--hyper_diff", type=float, default=1.0)
+parser.add_argument("--hyper_psd", type=float, default=1.0)
+
+args = parser.parse_args()
+
 env = gym.make('Pendulum-v0')
-dynamics_model = keras.models.load_model("/home/bmabsout/Documents/gymfc-nf1/training_code/neuroflight_trainer/dynamics_learning/saved/ff44f9/checkpoints/checkpoint50.tf")
+dynamics_model = keras.models.load_model(args.ckpt_path)
 print()
 print()
 print("dynamics_model:")
 dynamics_model.summary()
 
-X = generate_dataset(dynamics_model,100_000)
+X = generate_dataset(dynamics_model,args.num_samples)
 lyapunov_model = compile_lyapunov_model(env.observation_space.shape)
-lyapunov_model.fit(X, epochs=10, batch_size=1024)
+lyapunov_model.fit(X, epochs=args.epochs, batch_size=args.batch_size)
