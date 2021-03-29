@@ -101,7 +101,7 @@ class KerasPendulumEnv(gym.Env):
             self.viewer = rendering.Viewer(500, 500)
             self.viewer.set_bounds(-2.2, 2.2, -2.2, 2.2)
             rod = rendering.make_capsule(1, .2)
-            rod.set_color(.8, .3, .3)
+            rod.set_color(.0, .4, .7)
             self.pole_transform = rendering.Transform()
             rod.add_attr(self.pole_transform)
             self.viewer.add_geom(rod)

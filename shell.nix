@@ -9,7 +9,7 @@ with python3Packages;
 
 buildPythonPackage rec {
   name = "rl_smoothness";
-  src = ./.;
+  src = ./src;
   buildInputs = [ numpy matplotlib scipy tensorflow gym noise mpi4py joblib pyglet 
   cloudpickle psutil tqdm seaborn ];
   nativeBuildInputs = [ git tensorflow-tensorboard ];
