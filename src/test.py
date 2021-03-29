@@ -5,6 +5,7 @@ import numpy as np
 env = gym.make('KerasPendulum-v0',
 	model_path="./saved/256769/checkpoints/checkpoint40.tf")
 
+
 orig_env = gym.make('Pendulum-v0')
 # seed = np.random.randint(1000000)
 # seed = 154911 # almost rotate
