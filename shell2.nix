@@ -5,7 +5,7 @@ with import (
     rev = "f8929dce13e729357f31d5b2950cbb097744bed7";
     sha256 = "sha256:06ikqdb5038vkkyx4hi5lw4gksjjndjg7mz0spawnb1gpzhqkavs";
    }) {}; 
-with python3Packages;
+with python37Packages;
 
 buildPythonPackage rec {
   name = "rl_smoothness";

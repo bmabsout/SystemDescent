@@ -63,34 +63,36 @@ def gather_mini_batch(env: gym.Env, mini_batch_size: int, episode_size: int, pol
     }
 
 
-def system_identify(env: gym.Env, hidden_sizes: list, mini_batches: int, mini_batch_size: int, steps_per_batch: int, episode_size: int, save_freq: int):
+def system_identify(env: gym.Env, hidden_sizes: list, mini_batches: int, mini_batch_size: int, steps_per_batch: int, episode_size: int, save_freq: int, learning_rate: float):
     model = keras_model(env, hidden_sizes)
     model.compile(
-        optimizer=keras.optimizers.Adam(lr=0.001)
+        optimizer=keras.optimizers.Adam(lr=learning_rate)
         , loss="mse")
     uniq_id = uuid.uuid1().__str__()[:6]
     filepath = "saved/" + uniq_id
         # summary_writer = tf.summary.FileWriter(osp.join(filepath, "tensorboard"), graph=tf.get_default_graph())
-    for batch_index in range(0, mini_batches):
+    for batch_index in range(1, mini_batches+1):
         batch = gather_mini_batch(env, mini_batch_size, episode_size) #, policy=lambda o,a: np.array([0]))
-        model.fit(x=[batch["prev_states"], batch["actions"]], y=batch["states"], steps_per_epoch=steps_per_batch, batch_size=mini_batch_size)
-        path = osp.join(filepath, "checkpoints")
+        test_batch = gather_mini_batch(env, mini_batch_size//2, episode_size)
+        model.fit(x=[batch["prev_states"], batch["actions"]], y=batch["states"], epochs=steps_per_batch, validation_data=([test_batch["prev_states"], test_batch["actions"]], test_batch["states"]), batch_size=2048)
         if batch_index % save_freq == 0:
-            Path(path).mkdir(parents=True, exist_ok=True)
-            filename = path+"/checkpoint{}.tf".format(batch_index)
-            print("saving: ", filename)
-            model.save(filename)
+            checkpoint_name = "checkpoint{}".format(batch_index)
+            checkpoint_path = Path(filepath, "checkpoints", checkpoint_name)
+            checkpoint_path.mkdir(parents=True, exist_ok=True)
+            print("saving: ", str(checkpoint_path))
+            model.save(str(checkpoint_path))
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--env', type=str, help="environment", default="Pendulum-v0")
-    parser.add_argument('--mini_batches', type=int, default=100)
-    parser.add_argument('--save_freq', type=int, default=5)
-    parser.add_argument('--episode_size', type=int, default=400)
-    parser.add_argument('--mini_batch_size', type=int, default=10000)
+    parser.add_argument('--mini_batches', type=int, default=400)
+    parser.add_argument('--save_freq', type=int, default=1)
+    parser.add_argument('--learning_rate', type=float, default=1e-3)
+    parser.add_argument('--episode_size', type=int, default=200)
+    parser.add_argument('--mini_batch_size', type=int, default=100000)
     parser.add_argument('--steps_per_batch', type=int, default=100)
-    parser.add_argument('--hidden_sizes', nargs="+", type=int, default=[128,256,128])
+    parser.add_argument('--hidden_sizes', nargs="+", type=int, default=[256,256])
     args = parser.parse_args()
     args.env = gym.make(args.env)
     system_identify(**vars(args))

@@ -48,8 +48,9 @@ class KerasPendulumEnv(gym.Env):
         )
         self.seed()
         self.model = keras.models.load_model(model_path)
+
         def run_nn(obs, action):
-            return np.squeeze((self.model.predict([np.array([obs]), np.array([action])])))
+            return self.model([np.array([obs]), np.array([action])], training=False)[0]
 
         print("predicted:", run_nn(np.array([0,1,2]), np.array(0)))
         self.nn = run_nn
