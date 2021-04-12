@@ -2,6 +2,7 @@ import envs.KerasPendulumDir.KerasPendulum
 import gym
 import numpy as np
 from tensorflow import keras
+from tensorflow.keras import layers
 import matplotlib.pyplot as plt
 
 checkpoint_path = "./saved/f6bfa5/checkpoints/checkpoint4"
@@ -16,9 +17,19 @@ saved_actor.summary()
 
 lyapunov = keras.models.load_model(checkpoint_path + "/lyapunov_tf")
 
-x = np.linspace([0,-1,-7], [2,1,7],1000)
+def friction_actor_def():
+	inputs=keras.Input(shape=(3,))
+	outputs = layers.Lambda(lambda x: -0.9*x[:,2])(inputs)
+	model = keras.Model(inputs=inputs, outputs=outputs)
+	model.summary()
+	return model
 
-acts =  saved_actor(x, training=False)
+# friction_actor = friction_actor_def()
+
+x = np.linspace([0,-1,-7], [-2,1,7],1000)
+actor = saved_actor
+
+acts =  actor(x, training=False)
 
 res = dynamics([x,acts], training=False)
 
@@ -46,10 +57,10 @@ print("saved_actor")
 for i in range(200):
 	# random_act = np.random.uniform(2,size=(1,))
 
-	act = saved_actor(np.array([env_obs]), training=False)
+	act = actor(np.array([env_obs]), training=False)
 	print(env_obs)
 	print("lyapunov", lyapunov(np.array([env_obs])))
-	orig_act = saved_actor(np.array([orig_env_obs]), training=False)
+	orig_act = actor(np.array([orig_env_obs]), training=False)
 	env_obs, env_reward, env_done, env_info = env.step(act)
 	orig_env_obs, orig_env_reward, orig_env_done, orig_env_info = orig_env.step(orig_act)
 	print("error", np.linalg.norm(env_obs-orig_env_obs))
