@@ -51,13 +51,6 @@ def actor_def(state_shape, action_shape):
 # 	v = tf.exp(tf.reduce_mean(tf.math.log(tf.where(geo_mean_me==0.0, 1.0, geo_mean_me)),**kwargs))-slack
 # 	return tf.where(problems, 0.0, v)
 
-@tf.function
-def geo(l, slack=1e-15,**kwargs):
-	n = tf.cast(tf.size(l), tf.float32)
-	# < 1e-30 because nans start appearing out of nowhere otherwise
-	slacked = tf.maximum(l,slack)
-	return tf.reduce_prod(tf.where(slacked < 1e-30, 0., slacked)**(1.0/n), **kwargs)
-
 def generate_dataset(dynamics_model, num_samples):
 	# x = np.array([env.observation_space.sample() for _ in range(num_samples)])
 	x = np.random.uniform(low=[-np.pi, -7.0], high=[np.pi, 7.0], size=(num_samples, 2))
@@ -68,7 +61,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--ckpt_path",type=str,default="./saved/f6bfa5/checkpoints/checkpoint4")
 parser.add_argument("--num_batches",type=int,default=1000)
 parser.add_argument("--epochs",type=int,default=20)
-parser.add_argument("--batch_size", type=int,default=100)
+parser.add_argument("--batch_size", type=int,default=200)
 parser.add_argument("--epsilon_x", type=float,default=1e-2)
 parser.add_argument("--epsilon_diff", type=float,default=1e-2)
 parser.add_argument("--lr",type=float, default=1e-3)
@@ -99,6 +92,14 @@ def save_model(model, name):
 	path.mkdir(parents=True, exist_ok=True)
 	print(str(path))
 	model.save(str(path))
+
+
+@tf.function
+def geo(l, slack=1e-15,**kwargs):
+	n = tf.cast(tf.size(l), tf.float32)
+	# < 1e-30 because nans start appearing out of nowhere otherwise
+	slacked = tf.maximum(l,slack)
+	return tf.reduce_prod(tf.where(slacked < 1e-30, 0., slacked)**(1.0/n), **kwargs)
 
 @tf.function
 def transform(x, from_low, from_high, to_low, to_high):
@@ -142,8 +143,8 @@ def train(batches, f, actor, V, state_shape, args):
 			large_when_far = tf.squeeze(geo(tf.where(normed_dist < 0.01, 1.0, Vx)))
 			diff_normed = diff/2. + 0.5
 			positive_diff = tf.squeeze(tf.reduce_mean(1.0 + tf.minimum(diff,0.)))
-			line = 0.01*normed_dist
-			down_everywhere = tf.math.sigmoid(transform(diff, 0.0, line, -4.0, 4.0))
+			line = 0.001*normed_dist
+			down_everywhere = tf.math.sigmoid(transform(diff, 0.0, line, -7.0, 1.0))
 			# ((diff - 1) *4.0) # 0.98 at the value 1
 			# down_everywhere = tf.where(diff < 0.0, 0.0, tf.where(diff >= line, 1.0, tf.math.divide_no_nan(diff, line)))
 			diffg = tf.squeeze(geo(down_everywhere, slack=0))
