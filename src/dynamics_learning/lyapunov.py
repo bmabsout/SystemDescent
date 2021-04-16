@@ -117,7 +117,7 @@ def train(batches, f, actor, V, state_shape, args):
 			fxu = run_full_model(x)
 			Vx = V(x, training=True)
 			V_fxu = V(fxu, training=True)
-			set_point = tf.constant([[-1.0,0.0,0.0]])
+			set_point = tf.constant([[1.0,0.0,0.0]])
 			# (1,0,0) means no movement and pointing upwards
 			zero = tf.squeeze(1.0-V(set_point))
 			diff = (Vx - V_fxu)
