@@ -17,12 +17,8 @@ saved_actor.summary()
 
 lyapunov = keras.models.load_model(checkpoint_path + "/lyapunov_tf")
 
-def friction_actor_def():
-	inputs=keras.Input(shape=(3,))
-	outputs = layers.Lambda(lambda x: -0.9*x[:,2])(inputs)
-	model = keras.Model(inputs=inputs, outputs=outputs)
-	model.summary()
-	return model
+x = np.linspace([0.,-1,-7], [2.,1,7],1000)
+
 
 # friction_actor = friction_actor_def()
 
