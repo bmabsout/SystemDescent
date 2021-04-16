@@ -16,7 +16,8 @@ saved_actor.summary()
 
 lyapunov = keras.models.load_model(checkpoint_path + "/lyapunov_tf")
 
-x = np.linspace([0,-1,-7], [2,1,7],1000)
+x = np.linspace([0.,-1,-7], [2.,1,7],1000)
+
 
 acts =  saved_actor(x, training=False)
 
