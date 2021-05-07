@@ -18,7 +18,7 @@
         devShell = pkgs.mkShell {
           buildInputs = [
             (pkgs.python37.withPackages (ps: with ps; 
-              [ numpy tqdm matplotlib scipy gym tensorflow_2 ])
+              [ numpy tqdm matplotlib scipy gym tensorflow_2])
             )
             vscodium-with-extensions
           ];

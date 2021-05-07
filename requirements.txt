@@ -1,4 +1,4 @@
-gym==0.12.1
+gym==0.17.2
 h5py==2.10.0
 ipython==7.11.0
 Keras-Applications==1.0.8
@@ -10,7 +10,7 @@ numpy==1.19.5
 pandas==0.25.3
 scipy==1.4.1
 sympy==1.5
-tensorflow==1.14.0
+tensorflow==2.3.0
 psutil==5.7.0
 seaborn==0.9.1
 box2d-py==2.3.8
