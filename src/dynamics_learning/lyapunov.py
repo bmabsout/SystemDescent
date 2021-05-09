@@ -35,8 +35,8 @@ def friction_actor_def():
 
 def actor_def(state_shape, action_shape):
 	inputs = keras.Input(shape=state_shape)
-	dense1 = layers.Dense(128, activation='selu', kernel_initializer='lecun_normal')(inputs)
-	dense2 = layers.Dense(128, activation='selu', kernel_initializer='lecun_normal')(dense1)
+	dense1 = layers.Dense(16, activation='selu', kernel_initializer='lecun_normal')(inputs)
+	dense2 = layers.Dense(16, activation='selu', kernel_initializer='lecun_normal')(dense1)
 	# dense2 = layers.Dense(256, activation='sigmoid')(dense1)
 	prescaled = layers.Dense(np.squeeze(action_shape), activation='tanh')(dense2)
 	outputs = prescaled*2.0
@@ -55,17 +55,17 @@ def actor_def(state_shape, action_shape):
 def generate_dataset(dynamics_model, num_samples):
 	# x = np.array([env.observation_space.sample() for _ in range(num_samples)])
 	x = np.random.uniform(low=[-np.pi, -7.0], high=[np.pi, 7.0], size=(num_samples, 2))
-	res = np.vstack([np.cos(x[:,0]), np.sin(x[:,0]), x[:,1]]).T
+	res = np.vstack([np.sin(x[:,0]), np.cos(x[:,0]), x[:,1]]).T
 	return res.astype(np.float32)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--ckpt_path",type=str,default="./saved/f6bfa5/checkpoints/checkpoint4")
-parser.add_argument("--num_batches",type=int,default=20)
+parser.add_argument("--num_batches",type=int,default=100)
 parser.add_argument("--epochs",type=int,default=100)
 parser.add_argument("--batch_size", type=int,default=500)
 parser.add_argument("--epsilon_x", type=float,default=1e-2)
 parser.add_argument("--epsilon_diff", type=float,default=1e-2)
-parser.add_argument("--lr",type=float, default=1e-5)
+parser.add_argument("--lr",type=float, default=1e-4)
 parser.add_argument("--hyper_diff", type=float, default=1.0)
 parser.add_argument("--hyper_psd", type=float, default=1.0)
 
@@ -117,15 +117,6 @@ def transform(x, from_low, from_high, to_low, to_high):
 	diff_to = tf.maximum(to_high - to_low, 1e-20)
 	return (x - from_low)/diff_from * diff_to + to_low
 
-pi = tf.constant(math.pi)
-
-@tf.function
-def angular_similarity(v1, v2):
-	v1_angle = tf.math.atan2(v1[0], v1[1])
-	v2_angle = tf.math.atan2(v2[0], v2[1])
-	d = tf.abs(v1_angle - v2_angle) % (pi*2.0) 
-	return 1.0 - transform(pi - tf.abs(tf.abs(v1_angle - v2_angle) - pi), 0.0, pi, 0.0, 1.0)
-
 def train(batches, f, actor, V, state_shape, args):
 	optimizer=keras.optimizers.Adam(lr=args.lr)
 	@tf.function
@@ -141,14 +132,13 @@ def train(batches, f, actor, V, state_shape, args):
 			fxu = run_full_model(x,repeat=repetitions)
 			Vx = V(x, training=True)
 			V_fxu = V(fxu, training=True)
-			set_point = tf.constant([[1.0,0.0,0.0]])
+			set_point = tf.constant([[-0.866,0.5,0.0]])
 			#[-0.866,-0.5,0.0] means pointing 30 degrees to the right
 			# (1,0,0) means no movement and pointing upwards
 			zero = tf.squeeze(1.0-V(set_point))**4.0
 			diff = (Vx - V_fxu)
 			large = tf.minimum(tf.squeeze(tf.reduce_mean(Vx)),0.1)/0.1
 			dist = tf.norm((x - set_point), axis=1)
-			ad = angular_similarity(tf.transpose(x), tf.transpose(set_point))
 			normed_dist = tf.math.tanh(dist)
 			large2 = tf.math.sigmoid(transform(Vx, 0.0, 0.1, -4.0, 2.0))
 			dist_enf_per_elem = tf.where(dist < 0.5, (1.0-Vx), large2)
@@ -166,8 +156,8 @@ def train(batches, f, actor, V, state_shape, args):
 			# tf.print(geo(Vx, slack=0.0))
 			# tf.print(tf.reduce_sum(tf.where(dist<0.5,Vx,0.0)))
 			# tf.print(tf.size(tf.where(dist<0.5)))
-			respects_dist = tf.squeeze(tf.reduce_mean(tf.minimum(Vx - dist + 1.0, 1.0)**2.0))
-			large_when_far = tf.squeeze(p_mean(tf.where(dist < 0.2, 1.0, tf.math.sigmoid(transform(Vx, 0.0, normed_dist, -8.0, 4.0))), 0, slack=1e-5))
+			respects_dist = tf.squeeze(tf.reduce_mean(tf.minimum(Vx - normed_dist + 1.0, 1.0)**2.0))
+			large_when_far = tf.squeeze(p_mean(tf.where(normed_dist < 0.2, 1.0, tf.math.sigmoid(transform(Vx, 0.0, normed_dist, -8.0, 4.0))), 0, slack=1e-5))
 			diff_normed = diff/2. + 0.5
 			positive_diff = tf.squeeze(tf.reduce_mean(1.0 + tf.minimum(diff,0.)))
 			repetitionsf = tf.cast(repetitions, tf.dtypes.float32)
@@ -211,10 +201,7 @@ def train(batches, f, actor, V, state_shape, args):
 			# loss_value = losses['diff'] + losses["large"]
 			# loss_value = 1-geo(tf.stack([zero, positive_diff, large,diffy]))
 			used_keys = ['diffg_1', 'zero', 'avg_large', 'large_when_far']
-			# loss_value = 1-p_mean(tf.stack([losses[u] for u in used_keys]), -0.5, slack=0)
-			close_angle = p_mean(angular_similarity(tf.transpose(fxu)[0:2] ,tf.transpose(set_point)[0:2]), 1.0)
-			be_still = p_mean(1 - tf.abs(tf.transpose(fxu)[2]/7.0) , 1.0)
-			loss_value = 1- p_mean(tf.stack([close_angle]), 1.0)
+			loss_value = 1-p_mean(tf.stack([losses[u] for u in used_keys]), -0.5, slack=0)
 			# loss_value = 1-geo(tf.stack([diffg_1]), slack=0.0)
 			
 			# loss_V0 = tf.reduce_mean(V(set_point)**2, keepdims=True)
@@ -230,8 +217,8 @@ def train(batches, f, actor, V, state_shape, args):
 
 	@tf.function
 	def repeat_train(n, batch):
-		maxRepetitions = 50
-		repetitions = tf.random.uniform(shape=[], minval=40, maxval=maxRepetitions+1, dtype=tf.dtypes.int32)
+		maxRepetitions = 7
+		repetitions = tf.random.uniform(shape=[], minval=5, maxval=maxRepetitions+1, dtype=tf.dtypes.int32)
 		for i in range(n):
 			loss_value, losses = train_step(batch, repetitions, maxRepetitions)
 		return loss_value, losses
