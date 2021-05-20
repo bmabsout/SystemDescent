@@ -11,22 +11,27 @@ import uuid
 import time
 from tensorflow import keras
 from tensorflow.keras import layers
+import utils
 
 def random_policy(obs, action_space):
     return action_space.sample()
 
 def keras_model(env: gym.Env, hidden_sizes:list):
-    if(not (isinstance(env.action_space, gym.spaces.Box) and isinstance(env.action_space, gym.spaces.Box))):
+    obs_space = env.observation_space
+    act_space = env.action_space
+    if(not (isinstance(act_space, gym.spaces.Box) and isinstance(obs_space, gym.spaces.Box))):
         raise NotImplementedError
-    state_size = env.observation_space.shape[0]
-    state_input = keras.Input(shape=(env.observation_space.shape[0],))
-    action_input = keras.Input(shape=(env.action_space.shape[0],))
+    state_size = obs_space.shape[0]
+    state_input = keras.Input(shape=(obs_space.shape[0],))
+    action_input = keras.Input(shape=(act_space.shape[0],))
     
     dense = layers.Concatenate()([state_input, action_input])
     for hidden_size in hidden_sizes:
-        dense = layers.Dense(hidden_size, activation="relu")(dense)
-    outputs = layers.Dense(state_size)(dense)
-    model = keras.Model(inputs=[state_input, action_input], outputs=outputs, name="system_indentifier")
+        dense = layers.Dense(hidden_size, activation="selu", kernel_initializer='lecun_normal')(dense)
+    low = np.array(obs_space.low)
+    high = np.array(obs_space.high)
+    outputs = layers.Dense(state_size, activation="sigmoid")(dense)*(high-low) + low
+    model = keras.Model(inputs=[state_input, action_input], outputs=outputs, name="system_identifier")
     model.summary()
     return model
 

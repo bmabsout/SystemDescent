@@ -13,6 +13,7 @@ from functools import reduce
 from pathlib import Path
 import time
 import argparse
+from utils import *
 
 def V_def(state_shape: Tuple[int, ...]):
 	inputs = keras.Input(shape=state_shape)
@@ -33,10 +34,19 @@ def friction_actor_def():
 	model.summary()
 	return model
 
+
+
+def pid_actor_def():
+	inputs=keras.Input(shape=(3,))
+	outputs = layers.Lambda(lambda x: p_norm(x[:,:2]-set_point, 2, axis=0)-0.01*x[:,2])(inputs)
+	model = keras.Model(inputs=inputs, outputs=outputs)
+	model.summary()
+	return model
+
 def actor_def(state_shape, action_shape):
 	inputs = keras.Input(shape=state_shape)
-	dense1 = layers.Dense(16, activation='selu', kernel_initializer='lecun_normal')(inputs)
-	dense2 = layers.Dense(16, activation='selu', kernel_initializer='lecun_normal')(dense1)
+	dense1 = layers.Dense(32, activation='selu', kernel_initializer='lecun_normal')(inputs)
+	dense2 = layers.Dense(32, activation='selu', kernel_initializer='lecun_normal')(dense1)
 	# dense2 = layers.Dense(256, activation='sigmoid')(dense1)
 	prescaled = layers.Dense(np.squeeze(action_shape), activation='tanh')(dense2)
 	outputs = prescaled*2.0
@@ -59,10 +69,10 @@ def generate_dataset(dynamics_model, num_samples):
 	return res.astype(np.float32)
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--ckpt_path",type=str,default="./saved/f6bfa5/checkpoints/checkpoint4")
+parser.add_argument("--ckpt_path",type=str,default="./saved/823b17/checkpoints/checkpoint20")
 parser.add_argument("--num_batches",type=int,default=100)
 parser.add_argument("--epochs",type=int,default=100)
-parser.add_argument("--batch_size", type=int,default=500)
+parser.add_argument("--batch_size", type=int,default=1000)
 parser.add_argument("--epsilon_x", type=float,default=1e-2)
 parser.add_argument("--epsilon_diff", type=float,default=1e-2)
 parser.add_argument("--lr",type=float, default=1e-4)
@@ -85,60 +95,43 @@ actor = actor_def(state_shape, action_shape)
 # actor = friction_actor_def()
 lyapunov_model = V_def(state_shape)
 
-def map_dict_elems(fn, d):
-    return {k: fn(d[k]) for k in d.keys()}
-
 def save_model(model, name):
 	path = Path(args.ckpt_path, name)
 	path.mkdir(parents=True, exist_ok=True)
 	print(str(path))
 	model.save(str(path))
 
-
-@tf.function
-def geo(l, slack=1e-15,**kwargs):
-	n = tf.cast(tf.size(l), tf.float32)
-	# < 1e-30 because nans start appearing out of nowhere otherwise
-	slacked = l + slack
-	return tf.reduce_prod(tf.where(slacked < 1e-30, 0., slacked)**(1.0/n), **kwargs) - slack
-
-def p_mean(l, p, slack=0., **kwargs):
-	# generalized mean, p = -1 is the harmonic mean, p = 1 is the regular mean, p=inf is the max function ...
-	#https://www.wolframcloud.com/obj/26a59837-536e-4e9e-8ed1-b1f7e6b58377
-	if p == 0.:
-		return geo(tf.abs(l), slack, **kwargs)
-	else:
-		slacked = tf.abs(l) + slack
-		return tf.reduce_mean(tf.where(slacked < 1e-30, 0., slacked)**p, **kwargs)**(1.0/p) - slack
-
-@tf.function
-def transform(x, from_low, from_high, to_low, to_high):
-	diff_from = tf.maximum(from_high - from_low, 1e-20)
-	diff_to = tf.maximum(to_high - to_low, 1e-20)
-	return (x - from_low)/diff_from * diff_to + to_low
-
 def train(batches, f, actor, V, state_shape, args):
 	optimizer=keras.optimizers.Adam(lr=args.lr)
 	@tf.function
 	def run_full_model(x, repeat=1):
+		states = tf.TensorArray(tf.float32, size=repeat)
 		res = x
 		for i in range(repeat):
 			res = f([res, actor(res, training=True)])
-		return res
+			states = states.write(i, res)
+		return res, tf.transpose(states.stack(), [1,0,2])
 
 	@tf.function
 	def train_step(x, repetitions, maxRepetitions):
 		with tf.GradientTape() as tape:
-			fxu = run_full_model(x,repeat=repetitions)
+			fxu, states = run_full_model(x,repeat=repetitions)
+			# tf.print(tf.shape(states))
 			Vx = V(x, training=True)
 			V_fxu = V(fxu, training=True)
-			set_point = tf.constant([[-0.866,0.5,0.0]])
 			#[-0.866,-0.5,0.0] means pointing 30 degrees to the right
 			# (1,0,0) means no movement and pointing upwards
-			zero = tf.squeeze(1.0-V(set_point))**4.0
+			set_point = tf.constant([[1.0,0.0,0.0]])
+			zero = tf.squeeze(1.0-V(set_point))**2.0
 			diff = (Vx - V_fxu)
 			large = tf.minimum(tf.squeeze(tf.reduce_mean(Vx)),0.1)/0.1
 			dist = tf.norm((x - set_point), axis=1)
+			# reshaped = tf.reshape(states, tf.concat([[tf.shape(states)[0],  tf.shape(states)[1]*tf.shape(states)[2]]], axis=0))
+			ad = angular_similarity(tf.transpose(x), tf.transpose(set_point))
+			as_all = angular_similarity(tf.transpose(states, [2,0,1]), tf.transpose(set_point))
+			# tf.print(tf.shape(as_all))
+			close_angle = p_mean(angular_similarity(tf.transpose(fxu)[0:2] ,tf.transpose(set_point)[0:2]), 3.0)
+			be_still = p_mean(1 - tf.abs(tf.transpose(fxu)[2]/7.0) , 1.0)
 			normed_dist = tf.math.tanh(dist)
 			large2 = tf.math.sigmoid(transform(Vx, 0.0, 0.1, -4.0, 2.0))
 			dist_enf_per_elem = tf.where(dist < 0.5, (1.0-Vx), large2)
@@ -162,15 +155,15 @@ def train(batches, f, actor, V, state_shape, args):
 			positive_diff = tf.squeeze(tf.reduce_mean(1.0 + tf.minimum(diff,0.)))
 			repetitionsf = tf.cast(repetitions, tf.dtypes.float32)
 			maxRepetitionsf = tf.cast(maxRepetitions, tf.dtypes.float32)
-			line = tf.math.tanh(transform(repetitionsf, 0.0, 4.0*maxRepetitionsf*Vx**0.5+0.05, 0.0, 1.0))*Vx**0.5
+			line = tf.math.tanh(transform(repetitionsf, 0.05, 4.0*maxRepetitionsf*Vx**0.5+0.05, 0.0, 1.0))*Vx**0.5
 			# tf.print(repetitionsf)
 			# tf.print(Vx)
 			# tf.print(line)
-			down_everywhere2 = tf.math.sigmoid(transform(diff, 0.0, line, -5.0, 3.0))
+			down_everywhere2 = smooth_constraint(diff, 0.0, line)
 			# ((diff - 1) *4.0) # 0.98 at the value 1
 			# down_everywhere = tf.where(diff < 0.0, 0.0, tf.where(diff >= line, 1.0, tf.math.divide_no_nan(diff, line)))
 			# diffg = tf.squeeze(geo(down_everywhere, slack=1e-15))
-			diffg_1 = tf.squeeze(p_mean(down_everywhere2, -1., slack=1e-5))
+			diffg_1 = tf.squeeze(p_mean(down_everywhere2, 1.0, slack=1e-5))
 			diffg_2 = tf.squeeze(geo(down_everywhere2, slack=1e-3))
 			# diffg_1 = tf.squeeze(geo((tf.clip_by_value(diff_normed,0.5, 0.501)-0.5)*1000.0, slack=1e-6))
 			# diffb = tf.squeeze(tf.reduce_mean(down_everywhere))
@@ -182,7 +175,7 @@ def train(batches, f, actor, V, state_shape, args):
 				# "diff": args.hyper_diff * tf.reduce_mean(tf.nn.relu(args.epsilon_diff*Vx + (V_fxu - Vx) )),
 				"positive_diff": positive_diff,
 				# "diffg": diffg,
-				"diffg_1": diffg_1,
+				"diffg_1": transform(diffg_1, 0.0, 1.0, 0.01, 1.0),
 				"diffg_2": diffg_2,
 				# "diffb": diffb,
 				"down": down,
@@ -193,6 +186,11 @@ def train(batches, f, actor, V, state_shape, args):
 				"big_ones": big_ones,
 				"small_ones": small_ones,
 				"avg_large": avg_large,
+				"close_angle": smooth_constraint(close_angle, 0.3 + 0.2*repetitionsf/maxRepetitionsf, 0.7 + 0.3*repetitionsf/maxRepetitionsf),
+				"close_angle2": smooth_constraint(close_angle, 0.5, 0.7),
+				"be_still": transform(be_still, 0.0, 1.0, 0.2, 1.0),
+				"close_angles": p_mean(as_all, 3.0),
+				"close_angles_smalls": p_mean(as_all, -1.0),
 				# "kh": tf.reduce_min(x - set_point, axis=0),
 				# "diffg": diffg,
 				# "diffg_1": diffg_1,
@@ -200,8 +198,12 @@ def train(batches, f, actor, V, state_shape, args):
 
 			# loss_value = losses['diff'] + losses["large"]
 			# loss_value = 1-geo(tf.stack([zero, positive_diff, large,diffy]))
-			used_keys = ['diffg_1', 'zero', 'avg_large', 'large_when_far']
-			loss_value = 1-p_mean(tf.stack([losses[u] for u in used_keys]), -0.5, slack=0)
+
+			# used_keys = ['close_angles', 'close_angles_smalls', 'be_still']
+			used_keys = ['diffg_1', 'zero']
+			# loss_value = 1-p_mean(tf.stack([p_mean(tf.stack([close_angle, diffg_1]), 0.5), zero]), 0.1, slack=0)
+			# loss_value = 1- p_mean(tf.stack([losses["close_angle2"], losses['diffg_2'], losses['diffg_1'], losses['zero']]), -1.0)#losses['close_angle']
+			loss_value = 1- p_mean(tf.stack([losses[u] for u in used_keys]), 1.0)#losses['close_angle']
 			# loss_value = 1-geo(tf.stack([diffg_1]), slack=0.0)
 			
 			# loss_V0 = tf.reduce_mean(V(set_point)**2, keepdims=True)
@@ -210,6 +212,8 @@ def train(batches, f, actor, V, state_shape, args):
 			# loss_value = loss_V0 + args.hyper_psd*loss_Vx + args.hyper_diff*loss_V_fxu
 			
 		grads = tape.gradient(loss_value, actor.trainable_weights + V.trainable_weights)
+		tf.print(1-loss_value)
+		# tf.print(tf.reduce_mean(list(map(lambda x: p_mean(x,3.0), filter(lambda x: x != None,grads)))), 1-loss_value)
 		optimizer.apply_gradients(zip(grads, actor.trainable_weights + V.trainable_weights))
 		# optimizer.minimize(loss_value, actor.trainable_weights + V.trainable_weights).run()
 		# train_acc_metric.update_state(y, logits)
@@ -217,8 +221,8 @@ def train(batches, f, actor, V, state_shape, args):
 
 	@tf.function
 	def repeat_train(n, batch):
-		maxRepetitions = 7
-		repetitions = tf.random.uniform(shape=[], minval=5, maxval=maxRepetitions+1, dtype=tf.dtypes.int32)
+		maxRepetitions = 40
+		repetitions = tf.random.uniform(shape=[], minval=35, maxval=maxRepetitions+1, dtype=tf.dtypes.int32)
 		for i in range(n):
 			loss_value, losses = train_step(batch, repetitions, maxRepetitions)
 		return loss_value, losses
@@ -229,7 +233,7 @@ def train(batches, f, actor, V, state_shape, args):
 			start_time = time.time()
 			for step, batch in enumerate(batches):
 				
-				loss_value, losses = repeat_train(15, batch)
+				loss_value, losses = repeat_train(5, batch)
 				# Log every 200 batches.
 				if step % 2 == 0:
 					print(
