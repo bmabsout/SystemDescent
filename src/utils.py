@@ -8,6 +8,9 @@ def map_dict_elems(fn, d):
     return {k: fn(d[k]) for k in d.keys()}
 
 
+def to_numpy(tensor):
+	return tf.make_ndarray(tf.make_tensor_proto(tensor))
+
 @tf.function
 def geo(l, slack=1e-15,**kwargs):
 	n = tf.cast(tf.size(l), tf.float32)
@@ -48,3 +51,8 @@ def angular_similarity(v1, v2):
 	v2_angle = tf.math.atan2(v2[0], v2[1])
 	d = tf.abs(v1_angle - v2_angle) % (pi*2.0)
 	return 1.0 - transform(pi - tf.abs(tf.abs(v1_angle - v2_angle) - pi), 0.0, pi, 0.0, 1.0)
+
+
+@tf.function
+def andor(l,p):
+	return p_mean(tf.stack(l), p)

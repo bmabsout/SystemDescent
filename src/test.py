@@ -15,6 +15,7 @@ env = gym.make('KerasPendulum-v0',
 dynamics = keras.models.load_model(checkpoint_path)
 
 set_point = tf.constant([1.0,0.0])
+
 def pid_actor_def():
 	inputs=keras.Input(shape=(3,))
 	outputs = layers.Lambda(lambda x: utils.p_mean(x[:,:2]-set_point, 2, axis=1)-0.01*x[:,2])(inputs)
@@ -42,14 +43,17 @@ thetav, theta_dotv = np.meshgrid(theta, theta_dot)
 # friction_actor = friction_actor_def()
 
 # x = np.linspace([0,-1,-7], [-2,1,7],1000)
-inputs = np.array([np.cos(thetav), np.sin(thetav), theta_dotv]).T
+inputs = np.array([np.cos(thetav), np.sin(thetav), theta_dotv]).T.reshape(-1,3)
 print(inputs.shape)
-z =  tf.make_ndarray(tf.make_tensor_proto(lyapunov(inputs, training=False)))
-acts =  tf.make_ndarray(tf.make_tensor_proto(saved_actor(inputs, training=False)))
+z = lyapunov(inputs, training=False)
+acts = saved_actor(inputs, training=False)
 print(saved_actor(inputs).shape)
-after = tf.reshape(dynamics([inputs.reshape(-1,3), acts.reshape(-1,1)], training=False),(pts,pts,3))
-next_z = tf.make_ndarray(tf.make_tensor_proto(lyapunov(after, training=False)))
-
+after = dynamics([inputs, acts], training=False)
+next_z = lyapunov(after, training=False)
+after = utils.to_numpy(after).reshape(pts,pts,3)
+z = utils.to_numpy(z).reshape(pts,pts, 1)
+next_z = utils.to_numpy(next_z).reshape(pts,pts,1)
+acts = utils.to_numpy(acts).reshape(pts,pts,1)
 # actor = lambda x, **kwargs: np.array([0.0])
 actor = saved_actor
 # res = dynamics([states,acts], training=False)
@@ -59,20 +63,20 @@ actor = saved_actor
 # plt.plot(x[:,1], lyapunov(res) - y)
 plt.pcolormesh(thetav, theta_dotv, z.T[0][:-1, :-1], vmin=0.0, vmax=1.0)
 plt.colorbar()
-plt.show()
+plt.savefig("lyapunov.png")
 
-plt.pcolormesh(thetav, theta_dotv, acts.T[0][:-1, :-1])
-plt.colorbar()
-plt.show()
+# plt.pcolormesh(thetav, theta_dotv, acts.T[0][:-1, :-1])
+# plt.colorbar()
+# plt.show()
 
 
-plt.pcolormesh(thetav, theta_dotv, (next_z - z).T[0][:-1,:-1])
-plt.colorbar()
-plt.show()
+# plt.pcolormesh(thetav, theta_dotv, (next_z - z).T[0][:-1,:-1])
+# plt.colorbar()
+# plt.show()
 
 orig_env = gym.make('Pendulum-v0')
 seed = np.random.randint(1000000)
-seed = 632732 #bottom almost
+# seed = 632732 #bottom almost
 # seed = 154911 # almost rotate
 # seed = 47039 # almost rotate, then rotate
 # seed = 364366 # rotate
