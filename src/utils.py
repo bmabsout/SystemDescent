@@ -77,3 +77,12 @@ def save_checkpoint(path, model, id):
 	checkpoint_path.mkdir(parents=True, exist_ok=True)
 	print("saving: ", str(checkpoint_path))
 	model.save(str(checkpoint_path))
+
+def latest_model():
+	latest_env = latest_subdir("models")
+	latest_run = latest_subdir(latest_env)
+	latest_checkpoint = latest_subdir(latest_run + "/checkpoints")
+	return latest_checkpoint
+
+def extract_env_name(checkpoint_path):
+	return Path(checkpoint_path).parent.parent.parent.name
