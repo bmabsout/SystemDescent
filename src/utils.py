@@ -3,9 +3,13 @@ from tensorflow.keras import layers
 import tensorflow as tf
 import math
 import numpy as np
+import os
+import uuid
+from pathlib import Path
+
 
 def map_dict_elems(fn, d):
-    return {k: fn(d[k]) for k in d.keys()}
+	return {k: fn(d[k]) for k in d.keys()}
 
 
 def to_numpy(tensor):
@@ -56,3 +60,20 @@ def angular_similarity(v1, v2):
 @tf.function
 def andor(l,p):
 	return p_mean(tf.stack(l), p)
+
+def latest_subdir(dir="."):
+	with_paths = map(lambda subdir: dir + "/" + subdir, os.listdir(dir))
+	sub_dirs = filter(os.path.isdir, with_paths)
+	return max(sub_dirs, key=os.path.getmtime)
+
+def random_subdir(location):
+	uniq_id = uuid.uuid1().__str__()[:6]
+	folder_path = Path(location, uniq_id)
+	folder_path.mkdir(parents=True, exist_ok=True)
+	return folder_path
+
+def save_checkpoint(path, model, id):
+	checkpoint_path = Path(path, "checkpoints", f"checkpoint{id}")
+	checkpoint_path.mkdir(parents=True, exist_ok=True)
+	print("saving: ", str(checkpoint_path))
+	model.save(str(checkpoint_path))

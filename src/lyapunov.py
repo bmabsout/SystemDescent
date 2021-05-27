@@ -58,15 +58,15 @@ def generate_dataset(dynamics_model, num_samples):
 	return res.astype(np.float32)
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--ckpt_path",type=str,default="./saved/823b17/checkpoints/checkpoint20")
+parser.add_argument("--ckpt_path",type=str,default=latest_model())
 parser.add_argument("--num_batches",type=int,default=10)
 parser.add_argument("--epochs",type=int,default=100)
 parser.add_argument("--batch_size", type=int,default=1000)
-parser.add_argument("--lr",type=float, default=1e-3)
+parser.add_argument("--lr",type=float, default=1e-4)
 
 args = parser.parse_args()
-
-env = gym.make('Pendulum-v0')
+env_name = extract_env_name(args.ckpt_path)
+env = gym.make(env_name)
 print(env.action_space.shape)
 action_shape = env.action_space.shape
 state_shape = env.observation_space.shape
@@ -76,15 +76,15 @@ print()
 print("dynamics_model:")
 dynamics_model.summary()
 
-actor = actor_def(state_shape, action_shape)
-# actor = friction_actor_def()
-lyapunov_model = V_def(state_shape)
-
 def save_model(model, name):
 	path = Path(args.ckpt_path, name)
 	path.mkdir(parents=True, exist_ok=True)
 	print(str(path))
 	model.save(str(path))
+
+actor = actor_def(state_shape, action_shape)
+# actor = friction_actor_def()
+lyapunov_model = V_def(state_shape)
 
 @tf.function
 def scale_gradient(tensor, scale):
@@ -92,7 +92,7 @@ def scale_gradient(tensor, scale):
   return tensor * scale + tf.stop_gradient(tensor) * (1 - scale)
 
 def train(batches, f, actor, V, state_shape, args):
-	optimizer=keras.optimizers.SGD(lr=args.lr)
+	optimizer=keras.optimizers.Adam(lr=args.lr)
 	@tf.function
 	def run_full_model(x, repeat=1):
 		states = tf.TensorArray(tf.float32, size=repeat)

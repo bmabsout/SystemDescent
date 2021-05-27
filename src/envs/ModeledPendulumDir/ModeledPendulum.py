@@ -17,12 +17,12 @@ def random_policy(obs, action_space):
     return action_space.sample()
 
 register(
-    id='KerasPendulum-v0',
-    entry_point='envs.KerasPendulumDir.KerasPendulum:KerasPendulumEnv',
+    id='ModeledPendulum-v0',
+    entry_point='envs.ModeledPendulumDir.ModeledPendulum:ModeledPendulumEnv',
     max_episode_steps=200,
 )
 
-class KerasPendulumEnv(gym.Env):
+class ModeledPendulumEnv(gym.Env):
     metadata = {
         'render.modes': ['human', 'rgb_array'],
         'video.frames_per_second': 30

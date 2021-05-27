@@ -7,10 +7,13 @@ from tensorflow.keras import layers
 import matplotlib.pyplot as plt
 import utils 
 
-checkpoint_path = "./saved/823b17/checkpoints/checkpoint20"
+checkpoint_path = utils.latest_model()
 
-env = gym.make('KerasPendulum-v0',
-	model_path=checkpoint_path) #"./saved/64d25c/checkpoints/checkpoint10")
+env_name = utils.extract_env_name(checkpoint_path)
+
+env = gym.make('Modeled' + env_name,
+	model_path=checkpoint_path)
+
 
 dynamics = keras.models.load_model(checkpoint_path)
 
@@ -74,7 +77,7 @@ plt.savefig("lyapunov.png")
 # plt.colorbar()
 # plt.show()
 
-orig_env = gym.make('Pendulum-v0')
+orig_env = gym.make(env_name)
 seed = np.random.randint(1000000)
 # seed = 632732 #bottom almost
 # seed = 154911 # almost rotate
