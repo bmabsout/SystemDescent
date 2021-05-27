@@ -1,4 +1,4 @@
-import envs.KerasPendulumDir.KerasPendulum
+import envs.ModeledPendulumDir.ModeledPendulum
 import gym
 import numpy as np
 import tensorflow as tf
@@ -6,8 +6,12 @@ from tensorflow import keras
 from tensorflow.keras import layers
 import matplotlib.pyplot as plt
 import utils 
+try:
+	checkpoint_path = utils.latest_model()
+except e:
+	print("there are no trained models")
+	exit()
 
-checkpoint_path = utils.latest_model()
 
 env_name = utils.extract_env_name(checkpoint_path)
 
@@ -26,7 +30,10 @@ def pid_actor_def():
 	model.summary()
 	return model
 
-saved_actor = keras.models.load_model(checkpoint_path + "/actor_tf")
+try:
+	saved_actor = keras.models.load_model(checkpoint_path + "/actor_tf")
+except:
+	print(f"there is no actor trained for the model {checkpoint_path}")
 saved_actor.summary()
 
 lyapunov = keras.models.load_model(checkpoint_path + "/lyapunov_tf")

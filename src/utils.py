@@ -82,6 +82,7 @@ def latest_model():
 	latest_env = latest_subdir("models")
 	latest_run = latest_subdir(latest_env)
 	latest_checkpoint = latest_subdir(latest_run + "/checkpoints")
+	print(f"using model {latest_checkpoint}")
 	return latest_checkpoint
 
 def extract_env_name(checkpoint_path):

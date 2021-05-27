@@ -26,20 +26,6 @@ def V_def(state_shape: Tuple[int, ...]):
 	model.summary()
 	return model
 
-def friction_actor_def():
-	inputs=keras.Input(shape=(3,))
-	outputs = layers.Lambda(lambda x: -0.9*x[:,2])(inputs)
-	model = keras.Model(inputs=inputs, outputs=outputs)
-	model.summary()
-	return model
-
-def pid_actor_def():
-	inputs=keras.Input(shape=(3,))
-	outputs = layers.Lambda(lambda x: p_norm(x[:,:2]-set_point, 2, axis=0)-0.01*x[:,2])(inputs)
-	model = keras.Model(inputs=inputs, outputs=outputs)
-	model.summary()
-	return model
-
 def actor_def(state_shape, action_shape):
 	inputs = keras.Input(shape=state_shape)
 	dense1 = layers.Dense(32, activation='selu', kernel_initializer='lecun_normal')(inputs)
@@ -51,45 +37,14 @@ def actor_def(state_shape, action_shape):
 	model.summary()
 	return model
 
-def generate_dataset(dynamics_model, num_samples):
-	# x = np.array([env.observation_space.sample() for _ in range(num_samples)])
-	x = np.random.uniform(low=[-np.pi, -7.0], high=[np.pi, 7.0], size=(num_samples, 2))
-	res = np.vstack([np.sin(x[:,0]), np.cos(x[:,0]), x[:,1]]).T
-	return res.astype(np.float32)
-
-parser = argparse.ArgumentParser()
-parser.add_argument("--ckpt_path",type=str,default=latest_model())
-parser.add_argument("--num_batches",type=int,default=10)
-parser.add_argument("--epochs",type=int,default=100)
-parser.add_argument("--batch_size", type=int,default=1000)
-parser.add_argument("--lr",type=float, default=1e-4)
-
-args = parser.parse_args()
-env_name = extract_env_name(args.ckpt_path)
-env = gym.make(env_name)
-print(env.action_space.shape)
-action_shape = env.action_space.shape
-state_shape = env.observation_space.shape
-dynamics_model = keras.models.load_model(args.ckpt_path)
-print()
-print()
-print("dynamics_model:")
-dynamics_model.summary()
+def generate_dataset(env, num_samples):
+	return np.array([env.reset() for _ in range(num_samples)]).astype(np.float32)
 
 def save_model(model, name):
 	path = Path(args.ckpt_path, name)
 	path.mkdir(parents=True, exist_ok=True)
 	print(str(path))
 	model.save(str(path))
-
-actor = actor_def(state_shape, action_shape)
-# actor = friction_actor_def()
-lyapunov_model = V_def(state_shape)
-
-@tf.function
-def scale_gradient(tensor, scale):
-  """Scales the gradient for the backward pass."""
-  return tensor * scale + tf.stop_gradient(tensor) * (1 - scale)
 
 def train(batches, f, actor, V, state_shape, args):
 	optimizer=keras.optimizers.Adam(lr=args.lr)
@@ -141,7 +96,7 @@ def train(batches, f, actor, V, state_shape, args):
 		}
 
 		# used_keys = ['close_angles']#, 'diffg_1', 'zero']
-		used_keys = ['blurred_angles', 'blurred_angles2']#, 'diffg_1', 'zero']
+		used_keys = ['blurred_angles']#, 'diffg_1', 'zero']
 		loss_value = 1- andor([losses[u] for u in used_keys], 1.0)
 		metrics =  dict(map(lambda k: (k,losses[k]),used_keys))
 		return loss_value, metrics
@@ -160,8 +115,8 @@ def train(batches, f, actor, V, state_shape, args):
 
 	@tf.function
 	def repeat_train(n, batch):
-		maxRepetitions = 150
-		repetitions = tf.random.uniform(shape=[], minval=100, maxval=maxRepetitions+1, dtype=tf.dtypes.int32)
+		maxRepetitions = 15
+		repetitions = tf.random.uniform(shape=[], minval=7, maxval=maxRepetitions+1, dtype=tf.dtypes.int32)
 		for i in range(n):
 			loss_value, metrics = train_step(batch, repetitions, maxRepetitions)
 		return loss_value, metrics
@@ -187,6 +142,30 @@ def train(batches, f, actor, V, state_shape, args):
 	
 	train_loop()
 
-batched_dataset = list(map(lambda _: generate_dataset(dynamics_model, args.batch_size), range(args.num_batches)))
-train(batched_dataset, dynamics_model, actor, lyapunov_model, state_shape, args)
+if __name__ == "__main__":
+	parser = argparse.ArgumentParser()
+	parser.add_argument("--ckpt_path",type=str,default=latest_model())
+	parser.add_argument("--num_batches",type=int,default=10)
+	parser.add_argument("--epochs",type=int,default=100)
+	parser.add_argument("--batch_size", type=int,default=1000)
+	parser.add_argument("--lr",type=float, default=1e-4)
+	args = parser.parse_args()
+
+	env_name = extract_env_name(args.ckpt_path)
+	env = gym.make(env_name)
+
+	action_shape = env.action_space.shape
+	state_shape = env.observation_space.shape
+	
+	dynamics_model = keras.models.load_model(args.ckpt_path)
+	print()
+	print()
+	print("dynamics_model:")
+	dynamics_model.summary()
+
+	actor = actor_def(state_shape, action_shape)
+	lyapunov_model = V_def(state_shape)
+
+	batched_dataset = [generate_dataset(env, args.batch_size) for _ in range(args.num_batches)]
+	train(batched_dataset, dynamics_model, actor, lyapunov_model, state_shape, args)
 

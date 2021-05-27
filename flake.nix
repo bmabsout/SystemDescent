@@ -1,6 +1,6 @@
 {
 
-  description = "A very basic flake";
+  description = "A reproducible environment for learning certifiable controllers";
 
   inputs.flake-utils.url = "github:numtide/flake-utils";
   # inputs.nixpkgs.url = "nixpkgs/34f85de51bbc74595e63b22ee089adbb31f7c7a2";
