@@ -45,8 +45,11 @@ def generate_dataset(env, num_samples):
 	def gen_sample():
 		obs = env.reset()
 		obs[2] = obs[2]*7.0
-		return obs
-	return np.array([[env.reset(),[1.0,0.0,0.0]] for _ in range(num_samples)]).astype(np.float32)
+		angle = np.random.uniform(-np.pi, np.pi)
+
+		# return [obs, [np.sin(angle), np.cos(angle), 0.0]]
+		return [obs, [1.0, 1.0, 0.0]]
+	return np.array([gen_sample() for _ in range(num_samples)]).astype(np.float32)
 
 def save_model(model, name):
 	path = Path(args.ckpt_path, name)
@@ -76,17 +79,22 @@ def train(batches, f, actor, V, state_shape, args):
 		V_fxu = V([fxu, set_points], training=True)
 		#[-0.866,-0.5,0.0] means pointing 30 degrees to the right
 		# [1,0,0] means no movement and pointing upwards
-		zero = p_mean(1.0-V([set_points, set_points]), 0)
+		zero = p_mean(1.0-V([set_points, set_points]), 0)**2.0
 		diff = (Vx - V_fxu)
+		# tf.print(tf.shape(initial_states))
+		# tf.print(tf.shape(states))
+		# tf.print(tf.shape(set_points))
+		# tf.print(tf.shape(states[:,:,:2] - set_points[:,:2]))
 		transposed_states = tf.transpose(states, [2,0,1])
 		transposed_setpoints = tf.broadcast_to(tf.expand_dims(tf.transpose(set_points), axis=-1), tf.shape(transposed_states))
 		as_all = angular_similarity(transposed_states, transposed_setpoints)
 		re_all = tf.reshape(as_all, [tf.shape(as_all)[0], tf.shape(as_all)[1],1])
-		# blurred = tf.nn.conv1d(
-		# 	re_all, tf.constant([0.1,0.1,0.2,0.2,0.2,0.1,0.1],shape=[7,1,1]), padding='VALID', data_format="NWC", stride=1
-		# )[-1]
-		# tf.print(tf.shape(blurred))
-		close_angle = p_mean(angular_similarity(tf.transpose(fxu)[0:2] ,tf.transpose(set_points)[0:2]), 3.0)
+		blurred = tf.nn.conv1d(
+			re_all, tf.constant([0.1,0.1,0.2,0.2,0.2,0.1,0.1],shape=[7,1,1]), padding='VALID', data_format="NWC", stride=1
+		)[-1]
+		close_angle = p_mean(angular_similarity(tf.transpose(fxu)[0:2] ,tf.transpose(set_points)[0:2]), 4.0)
+
+
 		be_still = p_mean(1 - tf.abs(tf.transpose(fxu)[2]/7.0) , 1.0)
 		avg_large = tf.minimum(transform(p_mean(Vx,-1.0, slack=1e-15), 0.0, 0.4, 0.0, 1.0), 1.0)
 		repetitionsf = tf.cast(repetitions, tf.dtypes.float32)
@@ -97,20 +105,20 @@ def train(batches, f, actor, V, state_shape, args):
 
 		losses = {
 			"zero": zero,
-			"diffg_1": diffg_1,
+			"diffg_1": diffg_1**0.2,
 			"close_angle": smooth_constraint(close_angle, 0.3 + 0.2*repetitionsf/maxRepetitionsf, 0.7 + 0.3*repetitionsf/maxRepetitionsf),
-			"close_angle2": smooth_constraint(close_angle, 0.5, 0.7),
+			"close_angle2": close_angle**2.0,
 			"be_still": transform(be_still, 0.0, 1.0, 0.2, 1.0),
-			"close_angles": p_mean(as_all, 2.0),
-			# "blurred_angles": p_mean(blurred, 3.0),
+			"close_angles": tf.maximum(transform(p_mean(as_all, 3.0), 0.6, 0.7, 0.0, 1.0),0.0),
+			"blurred_angles": p_mean(blurred, 3.0),
 			# "blurred_angles2": p_mean(blurred, 0.0),
-			"avg_large": tf.minimum(p_mean(Vx, 1.0)*2.0, 1.0),
+			"avg_large": tf.minimum(p_mean(Vx, -2.0)*2.0, 1.0),
 			# "close_angles2": p_mean(as_all, 0.0),
 		}
 
-		used_keys = ['close_angle']
+		used_keys = ['close_angles', 'diffg_1', 'zero', 'avg_large']
 		# used_keys = ['blurred_angles', 'blurred_angles2']#, 'diffg_1', 'zero']
-		loss_value = 1- andor([losses[u] for u in used_keys], 0.0)
+		loss_value = 1- andor([losses[u] for u in used_keys], -1)
 		metrics =  dict(map(lambda k: (k,losses[k]),used_keys))
 		return loss_value, metrics
 
@@ -121,15 +129,15 @@ def train(batches, f, actor, V, state_shape, args):
 			# loss_value = scale_gradient(loss_value, 1/loss_value**4.0)
 
 		grads = tape.gradient(loss_value, actor.trainable_weights + V.trainable_weights)
-		tf.print(1-loss_value)
+		# tf.print(1-loss_value)
 		optimizer.apply_gradients(zip(grads, actor.trainable_weights + V.trainable_weights))
 
 		return 1-loss_value, metrics
 
 	@tf.function
 	def repeat_train(n, batch):
-		maxRepetitions = 7
-		repetitions = tf.random.uniform(shape=[], minval=5, maxval=maxRepetitions+1, dtype=tf.dtypes.int32)
+		maxRepetitions = 15
+		repetitions = tf.random.uniform(shape=[], minval=10, maxval=maxRepetitions+1, dtype=tf.dtypes.int32)
 		for i in range(n):
 			loss_value, metrics = train_step(batch, repetitions, maxRepetitions)
 		return loss_value, metrics
@@ -140,7 +148,7 @@ def train(batches, f, actor, V, state_shape, args):
 			start_time = time.time()
 			for step, batch in enumerate(batches):
 				
-				loss_value, metrics = repeat_train(15, batch)
+				loss_value, metrics = repeat_train(5, batch)
 				# Log every 200 batches.
 				if step % 2 == 0:
 					print(
@@ -158,10 +166,10 @@ def train(batches, f, actor, V, state_shape, args):
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
 	parser.add_argument("--ckpt_path",type=str,default=latest_model())
-	parser.add_argument("--num_batches",type=int,default=100)
+	parser.add_argument("--num_batches",type=int,default=200)
 	parser.add_argument("--epochs",type=int,default=100)
-	parser.add_argument("--batch_size", type=int,default=100)
-	parser.add_argument("--lr",type=float, default=1e-5)
+	parser.add_argument("--batch_size", type=int,default=200)
+	parser.add_argument("--lr",type=float, default=2e-4)
 	args = parser.parse_args()
 
 	env_name = extract_env_name(args.ckpt_path)
