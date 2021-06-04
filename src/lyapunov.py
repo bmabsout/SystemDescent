@@ -16,29 +16,37 @@ import argparse
 from utils import *
 
 def V_def(state_shape: Tuple[int, ...]):
-	inputs = keras.Input(shape=state_shape)
+	input_state = keras.Input(shape=state_shape)
+	input_setpoint = keras.Input(shape=state_shape)
+	inputs = layers.Concatenate()([input_state, input_setpoint])
 	dense1 = layers.Dense(256, activation='selu', kernel_initializer='lecun_normal')(inputs)
 	dense2 = layers.Dense(256, activation='selu', kernel_initializer='lecun_normal')(dense1)
 	outputs = layers.Dense(1, activation='sigmoid')(dense2)
-	model = keras.Model(inputs=inputs, outputs=outputs, name="V")
+	model = keras.Model(inputs=[input_state, input_setpoint], outputs=outputs, name="V")
 	print()
 	print()
 	model.summary()
 	return model
 
 def actor_def(state_shape, action_shape):
-	inputs = keras.Input(shape=state_shape)
+	input_state = keras.Input(shape=state_shape)
+	input_set_point = keras.Input(shape=state_shape)
+	inputs = layers.Concatenate()([input_state, input_set_point])
 	dense1 = layers.Dense(32, activation='selu', kernel_initializer='lecun_normal')(inputs)
 	dense2 = layers.Dense(32, activation='selu', kernel_initializer='lecun_normal')(dense1)
 	# dense2 = layers.Dense(256, activation='sigmoid')(dense1)
 	prescaled = layers.Dense(np.squeeze(action_shape), activation='tanh')(dense2)
 	outputs = prescaled*2.0
-	model = keras.Model(inputs=inputs, outputs=outputs)
+	model = keras.Model(inputs=[input_state, input_set_point], outputs=outputs)
 	model.summary()
 	return model
 
 def generate_dataset(env, num_samples):
-	return np.array([env.reset() for _ in range(num_samples)]).astype(np.float32)
+	def gen_sample():
+		obs = env.reset()
+		obs[2] = obs[2]*7.0
+		return obs
+	return np.array([[env.reset(),[1.0,0.0,0.0]] for _ in range(num_samples)]).astype(np.float32)
 
 def save_model(model, name):
 	path = Path(args.ckpt_path, name)
@@ -49,39 +57,43 @@ def save_model(model, name):
 def train(batches, f, actor, V, state_shape, args):
 	optimizer=keras.optimizers.Adam(lr=args.lr)
 	@tf.function
-	def run_full_model(x, repeat=1):
+	def run_full_model(initial_states, set_points, repeat=1):
 		states = tf.TensorArray(tf.float32, size=repeat)
-		res = x
+		current_states = initial_states
 		for i in range(repeat):
-			res = f([res, actor(res, training=True)])
-			states = states.write(i, res)
-		return res, tf.transpose(states.stack(), [1,0,2])
+			current_states = f([current_states, actor([current_states, set_points], training=True)])
+			states = states.write(i, current_states)
+		return current_states, tf.transpose(states.stack(), [1,0,2])
 
 	@tf.function
-	def get_loss(x, repetitions, maxRepetitions):
-		fxu, states = run_full_model(x,repeat=repetitions)
+	def get_loss(batch, repetitions, maxRepetitions):
+		initial_states = batch[:,0,:]
+		set_points = batch[:,1,:]
+		fxu, states = run_full_model(initial_states, set_points,repeat=repetitions)
 		# tf.print(tf.shape(states))
-		Vx = V(x, training=True)
-		V_fxu = V(fxu, training=True)
+		# set_point = tf.constant([[1.0,0.0,0.0]])
+		Vx = V([initial_states, set_points], training=True)
+		V_fxu = V([fxu, set_points], training=True)
 		#[-0.866,-0.5,0.0] means pointing 30 degrees to the right
 		# [1,0,0] means no movement and pointing upwards
-		set_point = tf.constant([[1.0,0.0,0.0]])
-		zero = tf.squeeze(1.0-V(set_point))**2.0
+		zero = p_mean(1.0-V([set_points, set_points]), 0)
 		diff = (Vx - V_fxu)
-		as_all = angular_similarity(tf.transpose(states, [2,0,1]), tf.transpose(set_point))
+		transposed_states = tf.transpose(states, [2,0,1])
+		transposed_setpoints = tf.broadcast_to(tf.expand_dims(tf.transpose(set_points), axis=-1), tf.shape(transposed_states))
+		as_all = angular_similarity(transposed_states, transposed_setpoints)
 		re_all = tf.reshape(as_all, [tf.shape(as_all)[0], tf.shape(as_all)[1],1])
-		blurred = tf.nn.conv1d(
-			re_all, tf.constant([0.1,0.1,0.2,0.2,0.2,0.1,0.1],shape=[7,1,1]), padding='VALID', data_format="NWC", stride=1
-		)
+		# blurred = tf.nn.conv1d(
+		# 	re_all, tf.constant([0.1,0.1,0.2,0.2,0.2,0.1,0.1],shape=[7,1,1]), padding='VALID', data_format="NWC", stride=1
+		# )[-1]
 		# tf.print(tf.shape(blurred))
-		close_angle = p_mean(angular_similarity(tf.transpose(fxu)[0:2] ,tf.transpose(set_point)[0:2]), 3.0)
+		close_angle = p_mean(angular_similarity(tf.transpose(fxu)[0:2] ,tf.transpose(set_points)[0:2]), 3.0)
 		be_still = p_mean(1 - tf.abs(tf.transpose(fxu)[2]/7.0) , 1.0)
 		avg_large = tf.minimum(transform(p_mean(Vx,-1.0, slack=1e-15), 0.0, 0.4, 0.0, 1.0), 1.0)
 		repetitionsf = tf.cast(repetitions, tf.dtypes.float32)
 		maxRepetitionsf = tf.cast(maxRepetitions, tf.dtypes.float32)
 		line = tf.math.tanh(transform(repetitionsf, 0.05, 4.0*maxRepetitionsf*Vx**0.5+0.05, 0.0, 1.0))*Vx**0.5
 		down_everywhere2 = smooth_constraint(diff, 0.0, line)
-		diffg_1 = tf.squeeze(p_mean(down_everywhere2, 1.0, slack=1e-5))
+		diffg_1 = tf.squeeze(p_mean(down_everywhere2, -1.0, slack=1e-10))
 
 		losses = {
 			"zero": zero,
@@ -90,21 +102,22 @@ def train(batches, f, actor, V, state_shape, args):
 			"close_angle2": smooth_constraint(close_angle, 0.5, 0.7),
 			"be_still": transform(be_still, 0.0, 1.0, 0.2, 1.0),
 			"close_angles": p_mean(as_all, 2.0),
-			"blurred_angles": p_mean(blurred, 3.0),
-			"blurred_angles2": p_mean(blurred, 0.0),
-			"close_angles2": p_mean(as_all, 0.0),
+			# "blurred_angles": p_mean(blurred, 3.0),
+			# "blurred_angles2": p_mean(blurred, 0.0),
+			"avg_large": tf.minimum(p_mean(Vx, 1.0)*2.0, 1.0),
+			# "close_angles2": p_mean(as_all, 0.0),
 		}
 
-		# used_keys = ['close_angles']#, 'diffg_1', 'zero']
-		used_keys = ['blurred_angles']#, 'diffg_1', 'zero']
-		loss_value = 1- andor([losses[u] for u in used_keys], 1.0)
+		used_keys = ['close_angle']
+		# used_keys = ['blurred_angles', 'blurred_angles2']#, 'diffg_1', 'zero']
+		loss_value = 1- andor([losses[u] for u in used_keys], 0.0)
 		metrics =  dict(map(lambda k: (k,losses[k]),used_keys))
 		return loss_value, metrics
 
 	@tf.function
-	def train_step(x, repetitions, maxRepetitions):
+	def train_step(batch, repetitions, maxRepetitions):
 		with tf.GradientTape() as tape:
-			loss_value, metrics = get_loss(x, repetitions, maxRepetitions)
+			loss_value, metrics = get_loss(batch, repetitions, maxRepetitions)
 			# loss_value = scale_gradient(loss_value, 1/loss_value**4.0)
 
 		grads = tape.gradient(loss_value, actor.trainable_weights + V.trainable_weights)
@@ -115,8 +128,8 @@ def train(batches, f, actor, V, state_shape, args):
 
 	@tf.function
 	def repeat_train(n, batch):
-		maxRepetitions = 15
-		repetitions = tf.random.uniform(shape=[], minval=7, maxval=maxRepetitions+1, dtype=tf.dtypes.int32)
+		maxRepetitions = 7
+		repetitions = tf.random.uniform(shape=[], minval=5, maxval=maxRepetitions+1, dtype=tf.dtypes.int32)
 		for i in range(n):
 			loss_value, metrics = train_step(batch, repetitions, maxRepetitions)
 		return loss_value, metrics
@@ -127,7 +140,7 @@ def train(batches, f, actor, V, state_shape, args):
 			start_time = time.time()
 			for step, batch in enumerate(batches):
 				
-				loss_value, metrics = repeat_train(5, batch)
+				loss_value, metrics = repeat_train(15, batch)
 				# Log every 200 batches.
 				if step % 2 == 0:
 					print(
@@ -145,10 +158,10 @@ def train(batches, f, actor, V, state_shape, args):
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
 	parser.add_argument("--ckpt_path",type=str,default=latest_model())
-	parser.add_argument("--num_batches",type=int,default=10)
+	parser.add_argument("--num_batches",type=int,default=100)
 	parser.add_argument("--epochs",type=int,default=100)
-	parser.add_argument("--batch_size", type=int,default=1000)
-	parser.add_argument("--lr",type=float, default=1e-4)
+	parser.add_argument("--batch_size", type=int,default=100)
+	parser.add_argument("--lr",type=float, default=1e-5)
 	args = parser.parse_args()
 
 	env_name = extract_env_name(args.ckpt_path)
@@ -156,7 +169,7 @@ if __name__ == "__main__":
 
 	action_shape = env.action_space.shape
 	state_shape = env.observation_space.shape
-	
+
 	dynamics_model = keras.models.load_model(args.ckpt_path)
 	print()
 	print()

@@ -1,11 +1,9 @@
 import tensorflow as tf
-# import neuroflight_trainer.gyms
 import gym
 import os.path as osp
 import numpy as np
 from gym.spaces import Box, Discrete
 import argparse
-#import KerasPendulum
 import time
 from tensorflow import keras
 from tensorflow.keras import layers
@@ -14,7 +12,7 @@ import utils
 def random_policy(obs, action_space):
     return action_space.sample()
 
-def keras_model(env: gym.Env, hidden_sizes:list):
+def model_def(env: gym.Env, hidden_sizes:list):
     obs_space = env.observation_space
     act_space = env.action_space
     if(not (isinstance(act_space, gym.spaces.Box) and isinstance(obs_space, gym.spaces.Box))):
@@ -65,18 +63,43 @@ def gather_mini_batch(env: gym.Env, mini_batch_size: int, episode_size: int, pol
         "states": np.array(states)[shuffled_indices]
     }
 
+    @tf.function
+    def repeat_train(n, batch):
+        maxRepetitions = 15
+        repetitions = tf.random.uniform(shape=[], minval=7, maxval=maxRepetitions+1, dtype=tf.dtypes.int32)
+        for i in range(n):
+            loss_value, metrics = train_step(batch, repetitions, maxRepetitions)
+        return loss_value, metrics
+
+def train_loop(epochs, batches):
+    for epoch in range(epochs):
+        print("\nStart of epoch %d" % (epoch,))
+        start_time = time.time()
+        for step, batch in enumerate(batches):
+            
+            loss_value, metrics = repeat_train(5, batch)
+            # Log every 200 batches.
+            if step % 2 == 0:
+                print(
+                    "Training loss (for one batch) at step %d: %.4e, %s"
+                    % (step, float(loss_value), str(map_dict_elems(lambda v: f"{v:.4e}", metrics)))
+                )
+                print("Seen so far: %d samples" % ((step + 1) * args.batch_size))
+
+        save_model(actor, "actor_tf")
+        save_model(lyapunov_model, "lyapunov_tf")
+        print("Time taken: %.2fs" % (time.time() - start_time))
 
 
 def system_identify(env_name: str, hidden_sizes: list, mini_batches: int, mini_batch_size: int, steps_per_batch: int, episode_size: int, save_freq: int, learning_rate: float):
     env = gym.make(env_name)
-    model = keras_model(env, hidden_sizes)
+    model = model_def(env, hidden_sizes)
     model.compile(
         optimizer=keras.optimizers.Adam(lr=learning_rate)
         , loss="mse")
     filepath = utils.random_subdir("models/" + env_name)
-        # summary_writer = tf.summary.FileWriter(osp.join(filepath, "tensorboard"), graph=tf.get_default_graph())
     for batch_index in range(1, mini_batches+1):
-        batch = gather_mini_batch(env, mini_batch_size, episode_size) #, policy=lambda o,a: np.array([0]))
+        batch = gather_mini_batch(env, mini_batch_size, episode_size)
         test_batch = gather_mini_batch(env, mini_batch_size//2, episode_size)
         model.fit(x=[batch["prev_states"], batch["actions"]], y=batch["states"], epochs=steps_per_batch, validation_data=([test_batch["prev_states"], test_batch["actions"]], test_batch["states"]), batch_size=2048)
         if batch_index % save_freq == 0:
@@ -85,7 +108,7 @@ def system_identify(env_name: str, hidden_sizes: list, mini_batches: int, mini_b
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--env_name', type=str, help="environment", default="Pendulum-v0")
+    parser.add_argument('--env_name', type=str, help="gym environment", default="Pendulum-v0")
     parser.add_argument('--mini_batches', type=int, default=400)
     parser.add_argument('--save_freq', type=int, default=1)
     parser.add_argument('--learning_rate', type=float, default=1e-3)

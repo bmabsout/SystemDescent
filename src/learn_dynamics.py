@@ -5,7 +5,6 @@ import os.path as osp
 import numpy as np
 from gym.spaces import Box, Discrete
 import argparse
-#import KerasPendulum
 import time
 from tensorflow import keras
 from tensorflow.keras import layers

@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import utils 
 try:
 	checkpoint_path = utils.latest_model()
+	print("using checkpoint:", checkpoint_path)
 except e:
 	print("there are no trained models")
 	exit()
@@ -21,14 +22,6 @@ env = gym.make('Modeled' + env_name,
 
 dynamics = keras.models.load_model(checkpoint_path)
 
-set_point = tf.constant([1.0,0.0])
-
-def pid_actor_def():
-	inputs=keras.Input(shape=(3,))
-	outputs = layers.Lambda(lambda x: utils.p_mean(x[:,:2]-set_point, 2, axis=1)-0.01*x[:,2])(inputs)
-	model = keras.Model(inputs=inputs, outputs=outputs)
-	model.summary()
-	return model
 
 try:
 	saved_actor = keras.models.load_model(checkpoint_path + "/actor_tf")
@@ -53,13 +46,16 @@ thetav, theta_dotv = np.meshgrid(theta, theta_dot)
 # friction_actor = friction_actor_def()
 
 # x = np.linspace([0,-1,-7], [-2,1,7],1000)
+set_point = np.array([1.0,0.0,0.0])
 inputs = np.array([np.cos(thetav), np.sin(thetav), theta_dotv]).T.reshape(-1,3)
+set_points = inputs*0 + set_point
 print(inputs.shape)
-z = lyapunov(inputs, training=False)
-acts = saved_actor(inputs, training=False)
-print(saved_actor(inputs).shape)
+print(set_points.shape)
+z = lyapunov([inputs, set_points], training=False)
+acts = saved_actor([inputs, set_points], training=False)
+print(saved_actor([inputs, set_points]).shape)
 after = dynamics([inputs, acts], training=False)
-next_z = lyapunov(after, training=False)
+next_z = lyapunov([after, set_points], training=False)
 after = utils.to_numpy(after).reshape(pts,pts,3)
 z = utils.to_numpy(z).reshape(pts,pts, 1)
 next_z = utils.to_numpy(next_z).reshape(pts,pts,1)
@@ -68,12 +64,12 @@ acts = utils.to_numpy(acts).reshape(pts,pts,1)
 actor = saved_actor
 # res = dynamics([states,acts], training=False)
 
-# z = lyapunov(states, training=False)
+# z = lyapunov([states, set_points], training=False)
 
-# plt.plot(x[:,1], lyapunov(res) - y)
+# plt.plot(x[:,1], lyapunov([res, set_points]) - y)
 plt.pcolormesh(thetav, theta_dotv, z.T[0][:-1, :-1], vmin=0.0, vmax=1.0)
 plt.colorbar()
-plt.savefig("lyapunov.png")
+plt.savefig(checkpoint_path + "/lyapunov_tf/lyapunov.png")
 
 # plt.pcolormesh(thetav, theta_dotv, acts.T[0][:-1, :-1])
 # plt.colorbar()
@@ -96,14 +92,15 @@ orig_env.seed(seed)
 env_obs = env.reset()
 orig_env_obs = orig_env.reset()
 print("saved_actor")
+def feed_obs(obs):
+	return [np.array([obs]), np.array([set_point])]
 
 for i in range(200):
 	# random_act = np.random.uniform(2,size=(1,))
-
-	act = actor(np.array([env_obs]), training=False)
+	act = actor(feed_obs(env_obs), training=False)
 	print(env_obs)
-	print("lyapunov", lyapunov(np.array([env_obs])))
-	orig_act = actor(np.array([orig_env_obs]), training=False)
+	print("lyapunov", lyapunov(feed_obs(env_obs)))
+	orig_act = actor(feed_obs(orig_env_obs), training=False)
 	env_obs, env_reward, env_done, env_info = env.step(act)
 	orig_env_obs, orig_env_reward, orig_env_done, orig_env_info = orig_env.step(orig_act)
 	print("error", np.linalg.norm(env_obs-orig_env_obs))
