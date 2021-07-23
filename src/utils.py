@@ -108,39 +108,22 @@ def inverse_sigmoid(y):
     else:
         return tf.math.log(y/(1-y))
 
-class Op:
-    # @tf.function
-    def __init__(self, operator, constraints):
-        self.operator = operator
-        self.constraints = constraints
 
-    # @tf.function
-    def scalarizer(op_or_constraint):
-        return (
-            op_or_constraint.scalar()
-                if type(op_or_constraint) is Op else
-            op_or_constraint
-        )
-            
-    # @tf.function # turning on the tf.function causes weird nonetypes to appear when debugging
-    # @tf.function
-    def scalar(self):
-        return p_mean(tf.stack(list(map(Op.scalarizer, self.constraints.values()))),self.operator)
+#dfl stands for Differentiable fuzzy logic
+# it is a recursive structure where there are tuples of dictionaries, the first element is the argument to the generalized mean, the second is the definition of the constraints.
+def dfl_scalar(op_constraints):
+    if(tf.is_tensor(op_constraints)):
+        return op_constraints
+    else:
+        operator, constraints = op_constraints
+        return p_mean(tf.stack(list(map(dfl_scalar, constraints.values()))),operator)
 
-    def pretty_str(op_or_constraint):
-        return (
-            str(op_or_constraint)
-                if type(op_or_constraint) is Op else
-            f"{op_or_constraint}"
-        )
-
-    def __str__(self):
-        constraints_str = ", ".join(map(lambda x: f"{x[0]}:{Op.pretty_str(x[1])}", self.constraints.items()))
-        return f"<{self.operator:.2f} [{constraints_str}]>"
-
-test = Op(0.999, {
-    "who": 3.0,
-    "boo": Op(0.5, {
-        "cheese": 1.0
-    })
-})
+def format_dfl(obj):
+    if isinstance(obj, tf.Tensor):
+        return np.array2string(obj.numpy().squeeze(), formatter={'float_kind':lambda x: "%.2e" % x})
+    else:
+        operator, constraints = obj
+        def format_constraint(item):
+            name, constraint = item
+            return name + f":{format_dfl(constraint)}"
+        return f"<{operator:.2e} {list(map(format_constraint, constraints.items()))}>"

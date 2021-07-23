@@ -23,10 +23,11 @@
         devShell = pkgs.mkShell {
           buildInputs = [
             (pkgs.python39.withPackages (ps: with ps; 
-              [ numpy tqdm matplotlib scipy gym tensorflow_2 jupyter ])
+              [ numpy tqdm matplotlib scipy gym tensorflow_2 ])
             )
             vscodium-with-extensions
           ];
+          QT_QPA_PLATFORM_PLUGIN_PATH="${pkgs.qt5.qtbase.bin}/lib/qt-${pkgs.qt5.qtbase.version}/plugins";
         };
       }
     );

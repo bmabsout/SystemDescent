@@ -15,6 +15,7 @@ import time
 import argparse
 from utils import *
 from tqdm import tqdm
+import pprint
 
 def V_def(state_shape: Tuple[int, ...]):
 	input_state = keras.Input(shape=state_shape)
@@ -72,10 +73,10 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 			states = states.write(i, current_states)
 		return current_states, tf.transpose(states.stack(), [1,0,2])
 
-	# @tf.function
+	@tf.function
 	def batch_value(batch):
-		maxRepetitions = 150
-		repetitions = tf.random.uniform(shape=[], minval=150, maxval=maxRepetitions+1, dtype=tf.dtypes.int32)
+		maxRepetitions = 10
+		repetitions = tf.random.uniform(shape=[], minval=5, maxval=maxRepetitions+1, dtype=tf.dtypes.int32)
 		initial_states = batch[:,0,:]
 		set_points = batch[:,1,:]
 		# set_point = tf.constant([[1.0,0.0,0.0]])
@@ -85,12 +86,8 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 		V_fxu = V([fxu, set_points], training=True)
 		#[-0.866,-0.5,0.0] means pointing 30 degrees to the right
 		# [1,0,0] means no movement and pointing upwards
-		# zero = p_mean(1.0-V([set_points, set_points]), 0)**2.0
-		# diff = (Vx - V_fxu)
-		# # tf.print(tf.shape(initial_states))
-		# # tf.print(tf.shape(states))
-		# # tf.print(tf.shape(set_points))
-		# # tf.print(tf.shape(states[:,:,:2] - set_points[:,:2]))
+		zero = p_mean(1.0-V([set_points, set_points]), 0)**2.0
+		diff = (Vx - V_fxu)
 		# transposed_states = tf.transpose(states, [2,0,1])
 		# transposed_setpoints = tf.broadcast_to(tf.expand_dims(tf.transpose(set_points), axis=-1), tf.shape(transposed_states))
 		# as_all = angular_similarity(transposed_states, transposed_setpoints)
@@ -104,12 +101,12 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 		# lyapunov_reg = 1 - tf.tanh(tf.reduce_mean(V.losses))
 
 		# be_still = p_mean(1 - tf.abs(tf.transpose(fxu)[2]/7.0) , 1.0)
-		# avg_large = tf.minimum(transform(p_mean(Vx,-1.0, slack=1e-15), 0.0, 0.4, 0.0, 1.0), 1.0)
-		# repetitionsf = tf.cast(repetitions, tf.dtypes.float32)
-		# maxRepetitionsf = tf.cast(maxRepetitions, tf.dtypes.float32)
-		# line = tf.math.tanh(transform(repetitionsf, 0.05, 4.0*maxRepetitionsf*Vx**0.5+0.05, 0.0, 1.0))*Vx**0.5
-		# down_everywhere2 = smooth_constraint(diff, 0.0, line)
-		# diffg_1 = tf.squeeze(p_mean(down_everywhere2, -1.0, slack=1e-13))
+		avg_large = tf.minimum(transform(p_mean(Vx,-1.0, slack=1e-15), 0.0, 0.4, 0.0, 1.0), 1.0)
+		repetitionsf = tf.cast(repetitions, tf.dtypes.float32)
+		maxRepetitionsf = tf.cast(maxRepetitions, tf.dtypes.float32)
+		line = tf.math.tanh(transform(repetitionsf, 0.05, 4.0*maxRepetitionsf*Vx**0.5+0.05, 0.0, 1.0))*Vx**0.5
+		down_everywhere2 = smooth_constraint(diff, 0.0, line)
+		diffg_1 = tf.squeeze(p_mean(down_everywhere2, -1.0, slack=1e-13))
 		
 		# losses = {
 		# 	"zero": zero,
@@ -126,22 +123,22 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 		# 	# "close_angles2": p_mean(as_all, 0.0),
 		# }
 
-		losses = Op(-1.0, {
+		dfl = (-1.0, {
 			"close_angle2": close_angle,
-			# "diffg_1": diffg_1**0.2,
-			# "avg_large": tf.minimum(p_mean(Vx, -2.0)*1.5, 1.0),
+			"diffg_1": (1.0, {"please": diffg_1**0.2}),
+			"avg_large": tf.minimum(p_mean(Vx, -2.0)*1.5, 1.0),
 		})
 
-		return losses.scalar(), losses
+		return dfl_scalar(dfl), dfl
 
-	# @tf.function
+	@tf.function
 	def train_step(batch):
 		for i in range(10):
 			with tf.GradientTape() as tape:
 				value, metrics = batch_value(batch)
 				# loss_value = scale_gradient(loss_value, 1/loss_value**4.0)
-
-			grads = tape.gradient(1-value, actor.trainable_weights + V.trainable_weights, unconnected_gradients='zero')
+				loss = 1 - value
+			grads = tape.gradient(loss, actor.trainable_weights + V.trainable_weights)
 			# tf.print(grads)
 			# tf.print(sum(map(lambda grad_bundle: tf.reduce_mean(tf.abs(grad_bundle)), grads))/len(grads))
 			# tf.print(1-loss_value)
@@ -158,7 +155,7 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 				with desc_pb:
 					for step, batch in enumerate(pb):
 						value, metrics = train_step(batch)
-						update_description(f"loss: {value:.4e}, {str(metrics)}")
+						update_description(f"loss: {value:.4e}, {format_dfl(metrics)}")
 
 			save_model(actor, "actor_tf")
 			save_model(lyapunov_model, "lyapunov_tf")
@@ -169,9 +166,9 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
 	parser.add_argument("--ckpt_path",type=str,default=latest_model())
-	parser.add_argument("--num_batches",type=int,default=10)
+	parser.add_argument("--num_batches",type=int,default=100)
 	parser.add_argument("--epochs",type=int,default=100)
-	parser.add_argument("--batch_size", type=int,default=1)
+	parser.add_argument("--batch_size", type=int,default=100)
 	parser.add_argument("--lr",type=float, default=1e-3)
 	parser.add_argument("--load_saved", action="store_true")
 	args = parser.parse_args()
