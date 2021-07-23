@@ -77,7 +77,7 @@ def train_loop(epochs, batches):
         start_time = time.time()
         for step, batch in enumerate(batches):
             
-            loss_value, metrics = repeat_train(5, batch)
+            loss_value, metrics = repeat_train(1, batch)
             # Log every 200 batches.
             if step % 2 == 0:
                 print(
@@ -101,7 +101,7 @@ def system_identify(env_name: str, hidden_sizes: list, mini_batches: int, mini_b
     for batch_index in range(1, mini_batches+1):
         batch = gather_mini_batch(env, mini_batch_size, episode_size)
         test_batch = gather_mini_batch(env, mini_batch_size//2, episode_size)
-        model.fit(x=[batch["prev_states"], batch["actions"]], y=batch["states"], epochs=steps_per_batch, validation_data=([test_batch["prev_states"], test_batch["actions"]], test_batch["states"]), batch_size=2048)
+        model.fit(x=[batch["prev_states"], batch["actions"]], y=batch["states"], epochs=steps_per_batch, validation_data=([test_batch["prev_states"], test_batch["actions"]], test_batch["states"]), batch_size=512)
         if batch_index % save_freq == 0:
             utils.save_checkpoint(filepath, model, batch_index)
 
@@ -111,7 +111,7 @@ if __name__ == "__main__":
     parser.add_argument('--env_name', type=str, help="gym environment", default="Pendulum-v0")
     parser.add_argument('--mini_batches', type=int, default=400)
     parser.add_argument('--save_freq', type=int, default=1)
-    parser.add_argument('--learning_rate', type=float, default=1e-3)
+    parser.add_argument('--learning_rate', type=float, default=1e-4)
     parser.add_argument('--episode_size', type=int, default=200)
     parser.add_argument('--mini_batch_size', type=int, default=100000)
     parser.add_argument('--steps_per_batch', type=int, default=100)

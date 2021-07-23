@@ -27,13 +27,15 @@ def keras_model(env: gym.Env, hidden_sizes:list):
         dense = layers.Dense(hidden_size, activation="selu", kernel_initializer='lecun_normal')(dense)
     low = np.array(obs_space.low)
     high = np.array(obs_space.high)
-    outputs = layers.Dense(state_size, activation="sigmoid")(dense)*(high-low) + low
-    model = keras.Model(inputs=[state_input, action_input], outputs=outputs, name="system_identifier")
+    outputs = layers.Dense(state_size)(dense)
+    skip_connection = state_input + outputs
+    activated = layers.Activation('sigmoid')(skip_connection)*(high-low) + low
+    model = keras.Model(inputs=[state_input, action_input], outputs=skip_connection, name="system_identifier")
     model.summary()
     return model
 
 
-def gather_mini_batch(env: gym.Env, mini_batch_size: int, episode_size: int, policy=random_policy):
+def gather_mini_batch(env: gym.Env, mini_batch_size: int, reset_every: int, policy=random_policy):
     obs = env.reset()
     done = False
     ep_len = 0
@@ -50,7 +52,7 @@ def gather_mini_batch(env: gym.Env, mini_batch_size: int, episode_size: int, pol
         states.append(obs)
         ep_len += 1
         total_steps_in_batch += 1
-        if done or ep_len >= episode_size:
+        if done or ep_len >= reset_every:
             obs = env.reset()
             prev_obs = obs
             ep_len = 0
@@ -77,7 +79,7 @@ def system_identify(env_name: str, hidden_sizes: list, mini_batches: int, mini_b
     for batch_index in range(1, mini_batches+1):
         batch = gather_mini_batch(env, mini_batch_size, episode_size) #, policy=lambda o,a: np.array([0]))
         test_batch = gather_mini_batch(env, mini_batch_size//2, episode_size)
-        model.fit(x=[batch["prev_states"], batch["actions"]], y=batch["states"], epochs=steps_per_batch, validation_data=([test_batch["prev_states"], test_batch["actions"]], test_batch["states"]), batch_size=2048)
+        model.fit(x=[batch["prev_states"], batch["actions"]], y=batch["states"], epochs=steps_per_batch, validation_data=([test_batch["prev_states"], test_batch["actions"]], test_batch["states"]), batch_size=64)
         if batch_index % save_freq == 0:
             utils.save_checkpoint(filepath, model, batch_index)
 
@@ -90,7 +92,7 @@ if __name__ == "__main__":
     parser.add_argument('--learning_rate', type=float, default=1e-3)
     parser.add_argument('--episode_size', type=int, default=200)
     parser.add_argument('--mini_batch_size', type=int, default=100000)
-    parser.add_argument('--steps_per_batch', type=int, default=100)
+    parser.add_argument('--steps_per_batch', type=int, default=20)
     parser.add_argument('--hidden_sizes', nargs="+", type=int, default=[256,256])
     args = parser.parse_args()
     system_identify(**vars(args))

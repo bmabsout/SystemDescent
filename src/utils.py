@@ -6,84 +6,141 @@ import numpy as np
 import os
 import uuid
 from pathlib import Path
+from tqdm import tqdm
 
 
 def map_dict_elems(fn, d):
-	return {k: fn(d[k]) for k in d.keys()}
+    return {k: fn(d[k]) for k in d.keys()}
 
 
 def to_numpy(tensor):
-	return tf.make_ndarray(tf.make_tensor_proto(tensor))
+    return tf.make_ndarray(tf.make_tensor_proto(tensor))
 
 @tf.function
 def geo(l, slack=1e-15,**kwargs):
-	n = tf.cast(tf.size(l), tf.float32)
-	# < 1e-30 because nans start appearing out of nowhere otherwise
-	slacked = l + slack
-	return tf.reduce_prod(tf.where(slacked < 1e-30, 0., slacked)**(1.0/n), **kwargs) - slack
+    n = tf.cast(tf.size(l), tf.float32)
+    # < 1e-30 because nans start appearing out of nowhere otherwise
+    slacked = l + slack
+    return tf.reduce_prod(tf.where(slacked < 1e-30, 0., slacked)**(1.0/n), **kwargs) - slack
 
 @tf.function
 def p_mean(l, p, slack=0., **kwargs):
-	# generalized mean, p = -1 is the harmonic mean, p = 1 is the regular mean, p=inf is the max function ...
-	#https://www.wolframcloud.com/obj/26a59837-536e-4e9e-8ed1-b1f7e6b58377
-	if p == 0.:
-		return geo(tf.abs(l), slack, **kwargs)
-	else:
-		slacked = tf.abs(l) + slack
-		return tf.reduce_mean(tf.where(slacked < 1e-30, 0., slacked)**p, **kwargs)**(1.0/p) - slack
+    # generalized mean, p = -1 is the harmonic mean, p = 1 is the regular mean, p=inf is the max function ...
+    #https://www.wolframcloud.com/obj/26a59837-536e-4e9e-8ed1-b1f7e6b58377
+    if p == 0.:
+        return geo(tf.abs(l), slack, **kwargs)
+    elif p == math.inf:
+        return tf.reduce_max(l)
+    elif p == -math.inf:
+        return tf.reduce_min(l)
+    else:
+        slacked = tf.abs(l) + slack
+        return tf.reduce_mean(tf.where(slacked < 1e-30, 0., slacked)**p, **kwargs)**(1.0/p) - slack
 
 @tf.function
 def transform(x, from_low, from_high, to_low, to_high):
-	diff_from = tf.maximum(from_high - from_low, 1e-20)
-	diff_to = tf.maximum(to_high - to_low, 1e-20)
-	return (x - from_low)/diff_from * diff_to + to_low
+    diff_from = tf.maximum(from_high - from_low, 1e-20)
+    diff_to = tf.maximum(to_high - to_low, 1e-20)
+    return (x - from_low)/diff_from * diff_to + to_low
 
 @tf.function
 def inv_sigmoid(x):
-	return tf.math.log(x/(1-x))
+    return tf.math.log(x/(1-x))
 
 @tf.function
 def smooth_constraint(x, from_low, from_high, to_low=0.03, to_high=0.97):
-	return tf.sigmoid(transform(x, from_low, from_high, inv_sigmoid(to_low), inv_sigmoid(to_high)))
+    return tf.sigmoid(transform(x, from_low, from_high, inv_sigmoid(to_low), inv_sigmoid(to_high)))
 
 
 pi = tf.constant(math.pi)
 
 @tf.function
 def angular_similarity(v1, v2):
-	v1_angle = tf.math.atan2(v1[0], v1[1])
-	v2_angle = tf.math.atan2(v2[0], v2[1])
-	d = tf.abs(v1_angle - v2_angle) % (pi*2.0)
-	return 1.0 - transform(pi - tf.abs(tf.abs(v1_angle - v2_angle) - pi), 0.0, pi, 0.0, 1.0)
+    v1_angle = tf.math.atan2(v1[0], v1[1])
+    v2_angle = tf.math.atan2(v2[0], v2[1])
+    d = tf.abs(v1_angle - v2_angle) % (pi*2.0)
+    return 1.0 - transform(pi - tf.abs(tf.abs(v1_angle - v2_angle) - pi), 0.0, pi, 0.0, 1.0)
 
 
 @tf.function
 def andor(l,p):
-	return p_mean(tf.stack(l), p)
+    return p_mean(tf.stack(l), p)
 
 def latest_subdir(dir="."):
-	with_paths = map(lambda subdir: dir + "/" + subdir, os.listdir(dir))
-	sub_dirs = filter(os.path.isdir, with_paths)
-	return max(sub_dirs, key=os.path.getmtime)
+    with_paths = map(lambda subdir: dir + "/" + subdir, os.listdir(dir))
+    sub_dirs = filter(os.path.isdir, with_paths)
+    return max(sub_dirs, key=os.path.getmtime)
 
 def random_subdir(location):
-	uniq_id = uuid.uuid1().__str__()[:6]
-	folder_path = Path(location, uniq_id)
-	folder_path.mkdir(parents=True, exist_ok=True)
-	return folder_path
+    uniq_id = uuid.uuid1().__str__()[:6]
+    folder_path = Path(location, uniq_id)
+    folder_path.mkdir(parents=True, exist_ok=True)
+    return folder_path
 
 def save_checkpoint(path, model, id):
-	checkpoint_path = Path(path, "checkpoints", f"checkpoint{id}")
-	checkpoint_path.mkdir(parents=True, exist_ok=True)
-	print("saving: ", str(checkpoint_path))
-	model.save(str(checkpoint_path))
+    checkpoint_path = Path(path, "checkpoints", f"checkpoint{id}")
+    checkpoint_path.mkdir(parents=True, exist_ok=True)
+    print("saving: ", str(checkpoint_path))
+    model.save(str(checkpoint_path))
 
 def latest_model():
-	latest_env = latest_subdir("models")
-	latest_run = latest_subdir(latest_env)
-	latest_checkpoint = latest_subdir(latest_run + "/checkpoints")
-	print(f"using model {latest_checkpoint}")
-	return latest_checkpoint
+    latest_env = latest_subdir("models")
+    latest_run = latest_subdir(latest_env)
+    latest_checkpoint = latest_subdir(latest_run + "/checkpoints")
+    print(f"using model {latest_checkpoint}")
+    return latest_checkpoint
 
 def extract_env_name(checkpoint_path):
-	return Path(checkpoint_path).parent.parent.parent.name
+    return Path(checkpoint_path).parent.parent.parent.name
+
+def desc_line():
+    desc_line_pb = tqdm(bar_format="[{desc}]")
+    def update_description(desc):
+        desc_line_pb.update()
+        desc_line_pb.set_description(desc)
+    return update_description, desc_line_pb
+
+def inverse_sigmoid(y):
+    if y == 0.0:
+        return -math.inf
+    elif y == 1.0:
+        return math.inf
+    else:
+        return tf.math.log(y/(1-y))
+
+class Op:
+    # @tf.function
+    def __init__(self, operator, constraints):
+        self.operator = operator
+        self.constraints = constraints
+
+    # @tf.function
+    def scalarizer(op_or_constraint):
+        return (
+            op_or_constraint.scalar()
+                if type(op_or_constraint) is Op else
+            op_or_constraint
+        )
+            
+    # @tf.function # turning on the tf.function causes weird nonetypes to appear when debugging
+    # @tf.function
+    def scalar(self):
+        return p_mean(tf.stack(list(map(Op.scalarizer, self.constraints.values()))),self.operator)
+
+    def pretty_str(op_or_constraint):
+        return (
+            str(op_or_constraint)
+                if type(op_or_constraint) is Op else
+            f"{op_or_constraint}"
+        )
+
+    def __str__(self):
+        constraints_str = ", ".join(map(lambda x: f"{x[0]}:{Op.pretty_str(x[1])}", self.constraints.items()))
+        return f"<{self.operator:.2f} [{constraints_str}]>"
+
+test = Op(0.999, {
+    "who": 3.0,
+    "boo": Op(0.5, {
+        "cheese": 1.0
+    })
+})

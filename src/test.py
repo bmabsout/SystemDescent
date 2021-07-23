@@ -46,7 +46,8 @@ thetav, theta_dotv = np.meshgrid(theta, theta_dot)
 # friction_actor = friction_actor_def()
 
 # x = np.linspace([0,-1,-7], [-2,1,7],1000)
-set_point = np.array([1.0,0.0,0.0])
+set_point_angle = -0.
+set_point = np.array([np.cos(set_point_angle),np.sin(set_point_angle),0.0])
 inputs = np.array([np.cos(thetav), np.sin(thetav), theta_dotv]).T.reshape(-1,3)
 set_points = inputs*0 + set_point
 print(inputs.shape)
