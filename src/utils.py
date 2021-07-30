@@ -7,6 +7,7 @@ import os
 import uuid
 from pathlib import Path
 from tqdm import tqdm
+import time
 
 
 def map_dict_elems(fn, d):
@@ -93,13 +94,6 @@ def latest_model():
 def extract_env_name(checkpoint_path):
     return Path(checkpoint_path).parent.parent.parent.name
 
-def desc_line():
-    desc_line_pb = tqdm(bar_format="[{desc}]")
-    def update_description(desc):
-        desc_line_pb.update()
-        desc_line_pb.set_description(desc)
-    return update_description, desc_line_pb
-
 def inverse_sigmoid(y):
     if y == 0.0:
         return -math.inf
@@ -109,21 +103,46 @@ def inverse_sigmoid(y):
         return tf.math.log(y/(1-y))
 
 
-#dfl stands for Differentiable fuzzy logic
+from collections import namedtuple
+DFL = namedtuple('DFL', ('operator', 'constraints'))
+#DFL stands for Differentiable fuzzy logic
 # it is a recursive structure where there are tuples of dictionaries, the first element is the argument to the generalized mean, the second is the definition of the constraints.
-def dfl_scalar(op_constraints):
-    if(tf.is_tensor(op_constraints)):
-        return op_constraints
-    else:
-        operator, constraints = op_constraints
-        return p_mean(tf.stack(list(map(dfl_scalar, constraints.values()))),operator)
 
-def format_dfl(obj):
-    if isinstance(obj, tf.Tensor):
-        return np.array2string(obj.numpy().squeeze(), formatter={'float_kind':lambda x: "%.2e" % x})
-    else:
-        operator, constraints = obj
+def dfl_scalar(dfl):
+    return (
+            p_mean(tf.stack(list(map(dfl_scalar, dfl.constraints.values()))),dfl.operator)
+        if(isinstance(dfl, DFL)) else
+            dfl
+    )
+
+def format_dfl(dfl):
+    if isinstance(dfl, DFL):
         def format_constraint(item):
             name, constraint = item
             return name + f":{format_dfl(constraint)}"
-        return f"<{operator:.2e} {list(map(format_constraint, constraints.items()))}>"
+        return f"<{dfl.operator:.2e} {list(map(format_constraint, dfl.constraints.items()))}>"
+    elif isinstance(dfl, tf.Tensor):
+        return np.array2string(dfl.numpy().squeeze(), formatter={'float_kind':lambda x: f"{x:.2e}"})
+    else:
+        return str(dfl)
+
+def desc_line():
+    desc_line_pb = tqdm(bar_format="[{desc}]")
+    def update_description(desc):
+        desc_line_pb.update()
+        desc_line_pb.set_description(desc)
+    return update_description, desc_line_pb
+
+def train_loop(list_of_batches, train_step, end_of_epoch=None):
+    for epoch, batches in enumerate(list_of_batches):
+        print(f"\nStart of epoch {epoch}")
+        start_time = time.time()
+        with tqdm(batches) as pb:
+            update_description, desc_pb = desc_line()
+            with desc_pb:
+                for batch in pb:
+                    update_description(train_step(batch))
+
+        if end_of_epoch:
+            end_of_epoch()
+        print(f"Time taken: {(time.time() - start_time):.2f}s")

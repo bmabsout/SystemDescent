@@ -52,11 +52,11 @@ inputs = np.array([np.cos(thetav), np.sin(thetav), theta_dotv]).T.reshape(-1,3)
 set_points = inputs*0 + set_point
 print(inputs.shape)
 print(set_points.shape)
-z = lyapunov([inputs, set_points], training=False)
-acts = saved_actor([inputs, set_points], training=False)
+z = lyapunov({"state": inputs, "setpoint": set_points}, training=False)
+acts = saved_actor({"state":inputs, "setpoint": set_points}, training=False)
 print(saved_actor([inputs, set_points]).shape)
-after = dynamics([inputs, acts], training=False)
-next_z = lyapunov([after, set_points], training=False)
+after = dynamics({"state": inputs, "action": acts}, training=False)
+next_z = lyapunov({"state": after, "setpoint": set_points}, training=False)
 after = utils.to_numpy(after).reshape(pts,pts,3)
 z = utils.to_numpy(z).reshape(pts,pts, 1)
 next_z = utils.to_numpy(next_z).reshape(pts,pts,1)
@@ -91,10 +91,11 @@ print("seed:", seed)
 env.seed(seed)
 orig_env.seed(seed)
 env_obs = env.reset()
+# env_obs = env.env.init_with_state(np.array([0.9474508 , 0.31990144, 1.06079]))
 orig_env_obs = orig_env.reset()
 print("saved_actor")
 def feed_obs(obs):
-	return [np.array([obs]), np.array([set_point])]
+	return {"state": np.array([obs]), "setpoint": np.array([set_point])}
 
 for i in range(200):
 	# random_act = np.random.uniform(2,size=(1,))

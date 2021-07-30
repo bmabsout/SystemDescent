@@ -50,7 +50,7 @@ class ModeledPendulumEnv(gym.Env):
         self.model = keras.models.load_model(model_path)
 
         def run_nn(obs, action):
-            return self.model([np.array([obs]), np.array([action])], training=False)[0]
+            return self.model({"state": np.array([obs]), "action": np.array([action])}, training=False)[0]
 
         print("predicted:", run_nn(np.array([0,1,2]), np.array(0)))
         self.nn = run_nn
@@ -88,11 +88,15 @@ class ModeledPendulumEnv(gym.Env):
     def obs_to_state(self, obs):
         return [math.atan2(obs[1], obs[0]), obs[2]]
 
+    def init_with_state(self, init_state):
+        self.obs = init_state
+        return self.obs
+
     def reset(self):
         high = np.array([np.pi, 1])
         theta, thetadot = self.np_random.uniform(low=-high, high=high)
-        self.last_u = None
         self.obs = np.array([np.cos(theta), np.sin(theta), thetadot])
+        self.last_u = None
         self.step_count = 0
         return self.obs
 
