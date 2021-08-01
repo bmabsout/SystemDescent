@@ -21,8 +21,8 @@ def V_def(state_shape: Tuple[int, ...]):
 	input_state = keras.Input(shape=state_shape)
 	input_setpoint = keras.Input(shape=state_shape)
 	inputs = layers.Concatenate()([input_state, input_setpoint])
-	dense1 = layers.Dense(32, activation='tanh', kernel_regularizer=keras.regularizers.l2(0.01))(inputs)
-	dense2 = layers.Dense(32, activation='tanh', kernel_regularizer=keras.regularizers.l2(0.01))(dense1)
+	dense1 = layers.Dense(64, activation='tanh', kernel_regularizer=keras.regularizers.l2(0.01))(inputs)
+	dense2 = layers.Dense(64, activation='tanh', kernel_regularizer=keras.regularizers.l2(0.01))(dense1)
 	outputs = layers.Dense(1, activation='sigmoid', kernel_regularizer=keras.regularizers.l2(0.01))(dense2)
 	model = keras.Model(inputs={"state": input_state, "setpoint": input_setpoint}, outputs=outputs, name="V")
 	print()
@@ -34,8 +34,8 @@ def actor_def(state_shape, action_shape):
 	input_state = keras.Input(shape=state_shape)
 	input_set_point = keras.Input(shape=state_shape)
 	inputs = layers.Concatenate()([input_state, input_set_point])
-	dense1 = layers.Dense(32, activation='tanh', kernel_regularizer=keras.regularizers.l2(0.01))(inputs)
-	dense2 = layers.Dense(32, activation='tanh', kernel_regularizer=keras.regularizers.l2(0.01))(dense1)
+	dense1 = layers.Dense(64, activation='tanh', kernel_regularizer=keras.regularizers.l2(0.01))(inputs)
+	dense2 = layers.Dense(64, activation='tanh', kernel_regularizer=keras.regularizers.l2(0.01))(dense1)
 	# dense2 = layers.Dense(256, activation='sigmoid')(dense1)
 	prescaled = layers.Dense(np.squeeze(action_shape), activation='tanh', kernel_regularizer=keras.regularizers.l2(0.01))(dense2)
 	outputs = prescaled*2.0
@@ -52,8 +52,8 @@ def generate_dataset(env):
 			angle = np.where(np.abs(np.cos(init_state)) < 0.7, 0.0, init_state)
 			# chooses only non-sideways angles
 
-			# return [obs, [np.cos(angle), np.sin(angle), 0.0]]
-			yield {"state": obs, "setpoint":[1.0, 0.0, 0.0]}
+			yield {"state":obs, "setpoint": [np.cos(angle), np.sin(angle), 0.0]}
+			# yield {"state": obs, "setpoint":[1.0, 0.0, 0.0]}
 	return gen_sample
 
 def save_model(model, name):
@@ -79,8 +79,8 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 
 	@tf.function
 	def batch_value(batch):
-		maxRepetitions = 7
-		repetitions = tf.random.uniform(shape=[], minval=5, maxval=maxRepetitions+1, dtype=tf.dtypes.int32)
+		maxRepetitions = 15
+		repetitions = tf.random.uniform(shape=[], minval=10, maxval=maxRepetitions+1, dtype=tf.dtypes.int32)
 		initial_states = batch["state"]
 		set_points = batch["setpoint"]
 		fxu, states = run_full_model(initial_states, set_points,repeat=repetitions)
@@ -91,7 +91,7 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 		transposed_states = tf.transpose(states, [2,0,1])
 		transposed_setpoints = tf.broadcast_to(tf.expand_dims(tf.transpose(set_points), axis=-1), tf.shape(transposed_states))
 		as_all = angular_similarity(transposed_states, transposed_setpoints)
-		close_angle = p_mean(angular_similarity(tf.transpose(fxu)[0:2] ,tf.transpose(set_points)[0:2]), 1.)
+		close_angle = p_mean(angular_similarity(tf.transpose(fxu)[0:2] ,tf.transpose(set_points)[0:2]), 4.)
 
 		actor_reg = 1 - tf.tanh(tf.reduce_mean(actor.losses))
 		lyapunov_reg = 1 - tf.tanh(tf.reduce_mean(V.losses))
@@ -103,20 +103,24 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 		decreases_everywhere = smooth_constraint(diff, 0.0, line)
 		proof_of_performance = tf.squeeze(p_mean(decreases_everywhere, -1.0, slack=1e-13))
 
-		dfl = DFL(1.0,
+		dfl = DFL(-1.0,
 			{
-			# "close_angles": p_mean(as_all, 3.0),
-			"close_angle": tf.clip_by_value(transform(close_angle,0.4, 0.6, 0.0, 1.0), 0.0, 1.0),
-			"lyapunov": DFL(0.0, {
-				"proof_of_performance": proof_of_performance,
-				# "avg_large": tf.minimum(p_mean(Vx, -2.0)*1.5, 1.0),
-				"zero": zero,
-				"actor_reg": tf.minimum(transform(actor_reg, 0.0, 1.0, 0.0, 1.1), 1.0),
-				"lyapunov_reg": tf.minimum(transform(lyapunov_reg, 0.0, 1.0, 0.0, 1.1), 1.0),
-			})
+			"close_angles": p_mean(as_all, 3.0),
+			# "close_angle": smooth_constraint(close_angle,0.65, 0.73),
+			# "lyapunov": DFL(0.0, {
+			# 	"proof_of_performance": proof_of_performance,
+			# 	# "avg_large": tf.minimum(p_mean(Vx, -2.0)*1.5, 1.0),
+			# 	# "zero": zero,
+			# # 	# "actor_reg": tf.minimum(transform(actor_reg, 0.0, 1.0, 0.0, 1.1), 1.0),
+			# # 	# "lyapunov_reg": tf.minimum(transform(lyapunov_reg, 0.0, 1.0, 0.0, 1.1), 1.0),
+			# })
 		})
 
 		return dfl_scalar(dfl), dfl
+
+	@tf.function
+	def set_gradient_size(gradients, size):
+		return size*gradients/tf.norm(gradients)
 
 	@tf.function
 	def train_step(batch):
@@ -124,19 +128,24 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 			with tf.GradientTape() as tape:
 				scalar, metrics = batch_value(batch)
 				# loss_value = scale_gradient(loss_value, 1/loss_value**4.0)
-				loss = 1 - scalar
+				loss = 1-scalar
 				# tf.print(value)
 			grads = tape.gradient(loss, actor.trainable_weights + V.trainable_weights)
+			# modified_grads = [ (grad_bundle if grad_bundle is None else set_gradient_size(grad_bundle, loss)) for grad_bundle in grads ]
 			# tf.print(grads)
-			# tf.print(sum(map(lambda grad_bundle: tf.reduce_mean(tf.abs(grad_bundle)), grads))/len(grads))
+			# grad_size = sum(map(lambda grad_bundle: tf.norm(tf.abs(grad_bundle)), filter(lambda grad_bundle: not(grad_bundle is None),modified_grads)))/len(modified_grads)
 			# tf.print(1-loss_value)
 			optimizer.apply_gradients(zip(grads, actor.trainable_weights + V.trainable_weights))
 
 		return scalar, metrics
 
-	def save_models():
-		save_model(actor, "actor_tf")
-		save_model(lyapunov_model, "lyapunov_tf")
+	def save_models(time_diff):
+		global seconds_since_last_save
+		seconds_since_last_save += time_diff
+		if(seconds_since_last_save > 15):
+			save_model(actor, "actor_tf")
+			save_model(lyapunov_model, "lyapunov_tf")
+			seconds_since_last_save = 0.0
 
 	def train_and_show(batch):
 		scalar, metrics = train_step(batch)
@@ -144,14 +153,15 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 
 	train_loop([batches]*args.epochs, train_and_show, save_models)
 	
+seconds_since_last_save = 0.
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
 	parser.add_argument("--ckpt_path",type=str,default=latest_model())
 	parser.add_argument("--num_batches",type=int,default=200)
 	parser.add_argument("--epochs",type=int,default=100)
-	parser.add_argument("--batch_size", type=int,default=256)
-	parser.add_argument("--lr",type=float, default=1e-3)
+	parser.add_argument("--batch_size", type=int,default=64)
+	parser.add_argument("--lr",type=float, default=5e-4)
 	parser.add_argument("--load_saved", action="store_true")
 	args = parser.parse_args()
 

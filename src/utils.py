@@ -144,5 +144,5 @@ def train_loop(list_of_batches, train_step, end_of_epoch=None):
                     update_description(train_step(batch))
 
         if end_of_epoch:
-            end_of_epoch()
+            end_of_epoch(time.time() - start_time)
         print(f"Time taken: {(time.time() - start_time):.2f}s")
