@@ -133,10 +133,22 @@ def desc_line():
         desc_line_pb.set_description(desc)
     return update_description, desc_line_pb
 
+def np_dict_to_dict_generator(d: dict):
+    size = min(map(len, d.values()))
+    iterator_dict = dict(map(lambda kv: (kv[0], iter(kv[1])), d.items()))
+    def next_in_dict():
+        return dict(map(lambda k: (k,next(iterator_dict[k])), d.keys()))
+    return map(lambda i: next_in_dict(), range(size))
+
+def map_dict(f, d):
+    return dict(map(lambda kv: (kv[0], f(kv[1])), d.items()))
+
 def train_loop(list_of_batches, train_step, end_of_epoch=None):
     for epoch, batches in enumerate(list_of_batches):
         print(f"\nStart of epoch {epoch}")
         start_time = time.time()
+        if type(batches) is dict:
+            batches = np_dict_to_dict_generator(batches)
         with tqdm(batches) as pb:
             update_description, desc_pb = desc_line()
             with desc_pb:
@@ -144,5 +156,5 @@ def train_loop(list_of_batches, train_step, end_of_epoch=None):
                     update_description(train_step(batch))
 
         if end_of_epoch:
-            end_of_epoch(time.time() - start_time)
+            end_of_epoch(epoch, time.time() - start_time)
         print(f"Time taken: {(time.time() - start_time):.2f}s")

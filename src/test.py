@@ -9,7 +9,7 @@ import utils
 try:
 	checkpoint_path = utils.latest_model()
 	print("using checkpoint:", checkpoint_path)
-except e:
+except:
 	print("there are no trained models")
 	exit()
 

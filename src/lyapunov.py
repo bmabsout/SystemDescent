@@ -116,7 +116,7 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 			# })
 		})
 
-		return dfl_scalar(dfl), dfl
+		return dfl
 
 	@tf.function
 	def set_gradient_size(gradients, size):
@@ -126,8 +126,9 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 	def train_step(batch):
 		for i in tf.range(1):
 			with tf.GradientTape() as tape:
-				scalar, metrics = batch_value(batch)
+				dfl = batch_value(batch)
 				# loss_value = scale_gradient(loss_value, 1/loss_value**4.0)
+				scalar = dfl_scalar(dfl)
 				loss = 1-scalar
 				# tf.print(value)
 			grads = tape.gradient(loss, actor.trainable_weights + V.trainable_weights)
@@ -137,9 +138,9 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 			# tf.print(1-loss_value)
 			optimizer.apply_gradients(zip(grads, actor.trainable_weights + V.trainable_weights))
 
-		return scalar, metrics
+		return scalar, dfl
 
-	def save_models(time_diff):
+	def save_models(epoch, time_diff):
 		global seconds_since_last_save
 		seconds_since_last_save += time_diff
 		if(seconds_since_last_save > 15):
