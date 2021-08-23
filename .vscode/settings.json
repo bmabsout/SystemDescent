@@ -1,4 +1,6 @@
 {
-    "python.linting.enabled": false,
-    "python.pythonPath": "/nix/store/y9iwbqhnqm07jigmv0fdrkdldg630fqr-python3-3.9.4-env/bin/python"
+    "python.linting.enabled": true,
+    "python.pythonPath": "/nix/store/czdafgj10cx5r2prjsm6imbzq8g19v23-python3-3.9.4-env/bin/python",
+    "python.linting.mypyEnabled": true,
+    "python.linting.pylintEnabled": false
 }

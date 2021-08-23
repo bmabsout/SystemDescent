@@ -134,7 +134,7 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 			grads = tape.gradient(loss, actor.trainable_weights + V.trainable_weights)
 			# modified_grads = [ (grad_bundle if grad_bundle is None else set_gradient_size(grad_bundle, loss)) for grad_bundle in grads ]
 			# tf.print(grads)
-			# grad_size = sum(map(lambda grad_bundle: tf.norm(tf.abs(grad_bundle)), filter(lambda grad_bundle: not(grad_bundle is None),modified_grads)))/len(modified_grads)
+			
 			# tf.print(1-loss_value)
 			optimizer.apply_gradients(zip(grads, actor.trainable_weights + V.trainable_weights))
 

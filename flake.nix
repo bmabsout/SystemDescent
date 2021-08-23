@@ -3,7 +3,7 @@
   description = "A reproducible environment for learning certifiable controllers";
 
   inputs.flake-utils.url = "github:numtide/flake-utils";
-  inputs.nixpkgs.url = "nixpkgs/13cef561850fc6ee01de09f945c0e6047c26ef3c";
+  inputs.nixpkgs.url = "nixpkgs/ff1ea3a36c1dfafdf0490e0d144c5a0ed0891bb9";
   outputs = { self, flake-utils, nixpkgs }:
     flake-utils.lib.eachDefaultSystem (system:
       let pkgs = (import (nixpkgs) { config = {allowUnfree = true;}; system =
@@ -22,7 +22,7 @@
         devShell = pkgs.mkShell {
           buildInputs = [
             (pkgs.python39.withPackages (ps: with ps; 
-              [ numpy tqdm matplotlib scipy gym tensorflow_2 ])
+              [ numpy tqdm matplotlib scipy gym tensorflow mypy])
             )
             vscodium-with-extensions
           ];

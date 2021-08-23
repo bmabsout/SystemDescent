@@ -6,9 +6,9 @@ import numpy as np
 import os
 import uuid
 from pathlib import Path
-from tqdm import tqdm
+# from tqdm_note import tqdm
 import time
-
+from tqdm.autonotebook import tqdm
 
 def map_dict_elems(fn, d):
     return {k: fn(d[k]) for k in d.keys()}
@@ -25,7 +25,7 @@ def geo(l, slack=1e-15,**kwargs):
     return tf.reduce_prod(tf.where(slacked < 1e-30, 0., slacked)**(1.0/n), **kwargs) - slack
 
 @tf.function
-def p_mean(l, p, slack=0., **kwargs):
+def p_mean(l, p, slack=1e-7, **kwargs):
     # generalized mean, p = -1 is the harmonic mean, p = 1 is the regular mean, p=inf is the max function ...
     #https://www.wolframcloud.com/obj/26a59837-536e-4e9e-8ed1-b1f7e6b58377
     if p == 0.:
@@ -36,7 +36,7 @@ def p_mean(l, p, slack=0., **kwargs):
         return tf.reduce_min(l)
     else:
         slacked = tf.abs(l) + slack
-        return tf.reduce_mean(tf.where(slacked < 1e-30, 0., slacked)**p, **kwargs)**(1.0/p) - slack
+        return tf.reduce_mean(slacked**p, **kwargs)**(1.0/p) - slack
 
 @tf.function
 def transform(x, from_low, from_high, to_low, to_high):
@@ -49,8 +49,13 @@ def inv_sigmoid(x):
     return tf.math.log(x/(1-x))
 
 @tf.function
-def smooth_constraint(x, from_low, from_high, to_low=0.03, to_high=0.97):
-    return tf.sigmoid(transform(x, from_low, from_high, inv_sigmoid(to_low), inv_sigmoid(to_high)))
+def smooth_constraint(x, from_low, from_high, to_low=0.03, to_high=0.97, starts_linear=False):
+    """like transform but is sigmoidal outside the range instead of linear"""
+    scale = lambda x: x*2.0 - 1.0 if starts_linear else x
+    unscale = lambda x: (x+1.0)/2.0 if starts_linear else x
+    sigmoid_low = inv_sigmoid(unscale(to_low))
+    sigmoid_high = inv_sigmoid(unscale(to_high))
+    return scale(tf.sigmoid(transform(x, from_low, from_high, sigmoid_low, sigmoid_high)))
 
 
 pi = tf.constant(math.pi)
@@ -94,20 +99,13 @@ def latest_model():
 def extract_env_name(checkpoint_path):
     return Path(checkpoint_path).parent.parent.parent.name
 
-def inverse_sigmoid(y):
-    if y == 0.0:
-        return -math.inf
-    elif y == 1.0:
-        return math.inf
-    else:
-        return tf.math.log(y/(1-y))
-
 
 from collections import namedtuple
 DFL = namedtuple('DFL', ('operator', 'constraints'))
 #DFL stands for Differentiable fuzzy logic
 # it is a recursive structure where there are tuples of dictionaries, the first element is the argument to the generalized mean, the second is the definition of the constraints.
 
+# @tf.function
 def dfl_scalar(dfl):
     return (
             p_mean(tf.stack(list(map(dfl_scalar, dfl.constraints.values()))),dfl.operator)
@@ -149,12 +147,30 @@ def train_loop(list_of_batches, train_step, end_of_epoch=None):
         start_time = time.time()
         if type(batches) is dict:
             batches = np_dict_to_dict_generator(batches)
-        with tqdm(batches) as pb:
+        num_batches = len(batches)
+        iterator = iter(batches)
+        with tqdm(range(num_batches)) as pb:
             update_description, desc_pb = desc_line()
             with desc_pb:
-                for batch in pb:
-                    update_description(train_step(batch))
+                for i in pb:
+                    update_description(train_step(next(iterator)))
 
         if end_of_epoch:
             end_of_epoch(epoch, time.time() - start_time)
         print(f"Time taken: {(time.time() - start_time):.2f}s")
+
+
+def mean_grad_size(grads):
+    return sum(map(lambda grad_bundle: tf.norm(tf.abs(grad_bundle)), filter(lambda grad_bundle: not(grad_bundle is None),grads)))/len(grads)
+
+
+@tf.keras.utils.register_keras_serializable(package='Custom', name='p_mean')
+class PMean(tf.keras.regularizers.Regularizer):
+  def __init__(self, p=1.):
+    self.p = p
+
+  def __call__(self, x):
+    return p_mean(x, self.p)
+
+  def get_config(self):
+    return {'p': float(self.p)}
