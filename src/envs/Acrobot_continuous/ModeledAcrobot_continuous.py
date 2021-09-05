@@ -114,7 +114,7 @@ class AcrobotEnv(core.Env):
         return [seed]
 
     def reset(self):
-        self.state = self.angles_to_state(self.np_random.uniform(low=-0.1, high=0.1, size=(4,)).astype(
+        self.state = self.angles_to_state(self.np_random.uniform(low=-3.0, high=3.0, size=(4,)).astype(
             np.float32
         ))
         return self.state

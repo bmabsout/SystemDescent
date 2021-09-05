@@ -56,12 +56,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', type=str, help="model_path", default=None)
     parser.add_argument('--random_actor', action="store_true")
-    parser.add_argument('--save_freq', type=int, default=1)
-    parser.add_argument('--learning_rate', type=float, default=1e-3)
-    parser.add_argument('--episode_size', type=int, default=200)
-    parser.add_argument('--mini_batch_size', type=int, default=100000)
-    parser.add_argument('--steps_per_batch', type=int, default=20)
-    parser.add_argument('--hidden_sizes', nargs="+", type=int, default=[256,256])
+    parser.add_argument('--seed', type=int, default=np.random.randint(100000))
     args = parser.parse_args()
 
     try:
@@ -85,9 +80,9 @@ if __name__ == "__main__":
     else:
         try:
             actor = keras.models.load_model(checkpoint_path + "/actor_tf")
+            actor.summary()
         except:
             print(f"there is no actor trained for the model {checkpoint_path}")
-        actor.summary()
 
     try:
         lyapunov = keras.models.load_model(checkpoint_path + "/lyapunov_tf")
@@ -99,7 +94,7 @@ if __name__ == "__main__":
 
 
     orig_env = gym.make(env_name)
-    seed = np.random.randint(1000000)
+    seed = args.seed
     # seed = 632732 #bottom almost
     # seed = 154911 # almost rotate
     # seed = 47039 # almost rotate, then rotate

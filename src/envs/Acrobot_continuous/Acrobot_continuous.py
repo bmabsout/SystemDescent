@@ -97,7 +97,7 @@ class AcrobotEnv(core.Env):
         )
         low = -high
         self.observation_space = spaces.Box(low=low, high=high, dtype=np.float32)
-        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(1,), dtype=np.float32)
+        self.action_space = spaces.Box(low=-2.0, high=2.0, shape=(1,), dtype=np.float32)
         self.state = None
         self.seed()
 
@@ -106,7 +106,7 @@ class AcrobotEnv(core.Env):
         return [seed]
 
     def reset(self):
-        self.state = self.np_random.uniform(low=-0.1, high=0.1, size=(4,)).astype(
+        self.state = self.np_random.uniform(low=-3.0, high=3.0, size=(4,)).astype(
             np.float32
         )
         return self._get_ob()

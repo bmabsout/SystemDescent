@@ -117,7 +117,7 @@ def discriminator_def(env: gym.Env, hidden_sizes: list[int], num_states: int):
 
 @tf.function
 def generate_fakes(generator, batch):
-    latent_shape = batch["state"].shape[0:2] +[generator.input["latent"].shape[-1]]
+    latent_shape = tuple(batch["state"].shape[0:2]) + tuple(generator.input["latent"].shape[1:])
     return ({
         "state": batch["state"],
         "action": batch["action"],
@@ -147,8 +147,8 @@ def gan_dfls(generator, discriminator, real_batch):
     })
     generator_dfl = utils.DFL(0.0, {
 #         "fooled": utils.p_mean(discriminator(fakes2),2.0)
-        # "fooled": utils.smooth_constraint(utils.p_mean(discriminator(fakes2), 2.0), 0.0, 0.5, 0.0, 0.97, starts_linear=True),
-        "direct": direct_dfls(generator, real_batch)
+        "fooled": utils.smooth_constraint(utils.p_mean(discriminator(fakes2), 2.0), 0.0, 0.5, 0.0, 0.97, starts_linear=True),
+        # "direct": direct_dfls(generator, real_batch)
         # "reg": tf.where(tf.stop_gradient(utils.dfl_scalar(real_fake_dfl)) < 0.1, generator_regularizer, 1.0)
     })
     
@@ -201,7 +201,7 @@ train_discriminator = True
 def train_GAN_step(generator, discriminator, learning_rate):
     global train_discriminator
     gen_optimizer = keras.optimizers.Adam(lr=learning_rate)
-    disc_optimizer = keras.optimizers.Adam(lr=learning_rate)
+    disc_optimizer = keras.optimizers.Adam(lr=3e-4)
 
     @tf.function
     def gradient_step(batch):
@@ -265,8 +265,8 @@ def system_identify(env_name: str,
     validation_data = dataset.take(num_validation_batches).cache()
     pathlib.Path("caches").mkdir(parents=True, exist_ok=True)
     data = dataset.take(num_batches).apply(tf.data.experimental.assert_cardinality(num_batches)).cache(f"caches/{env_name}_nb:{num_batches}_e:{episode_size}_b:{batch_size}")
-    # trainer = train_GAN_step(generator, discriminator, learning_rate)
-    trainer = train_direct_step(generator, learning_rate)
+    trainer = train_GAN_step(generator, discriminator, learning_rate)
+    # trainer = train_direct_step(generator, learning_rate)
 
     def end_of_epoch(epoch, dt):
         global train_discriminator
@@ -284,12 +284,12 @@ if __name__ == "__main__":
     parser.add_argument('--episode_size', type=int, default=200)
     parser.add_argument('--batch_size', type=int, default=100)
     parser.add_argument('--num_states', type=int, default=1)
-    parser.add_argument('--num_batches', type=int, default=1000)
+    parser.add_argument('--num_batches', type=int, default=10000)
     parser.add_argument('--num_validation_batches', type=int, default=20)
     parser.add_argument('--epochs', type=int, default=200)
     parser.add_argument('--load_saved', type=str, default=None)
-    parser.add_argument('--generator_hidden_sizes', nargs="+", type=int, default=[50,25])
-    parser.add_argument('--discriminator_hidden_sizes', nargs="+", type=int, default=[50, 25])
+    parser.add_argument('--generator_hidden_sizes', nargs="+", type=int, default=[200,100])
+    parser.add_argument('--discriminator_hidden_sizes', nargs="+", type=int, default=[200, 100])
     args = parser.parse_args()
     # tf.debugging.experimental.enable_dump_debug_info('my-tfdbg-dumps', tensor_debug_mode="FULL_HEALTH")
     system_identify(**vars(args))

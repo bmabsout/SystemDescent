@@ -147,13 +147,13 @@ def train_loop(list_of_batches, train_step, end_of_epoch=None):
         start_time = time.time()
         if type(batches) is dict:
             batches = np_dict_to_dict_generator(batches)
-        num_batches = len(batches)
-        iterator = iter(batches)
-        with tqdm(range(num_batches)) as pb:
+        # num_batches = len(batches)
+        # iterator = iter(batches)
+        with tqdm(batches) as pb:
             update_description, desc_pb = desc_line()
             with desc_pb:
-                for i in pb:
-                    update_description(train_step(next(iterator)))
+                for batch in pb:
+                    update_description(train_step(batch))
 
         if end_of_epoch:
             end_of_epoch(epoch, time.time() - start_time)
