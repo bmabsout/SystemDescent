@@ -1,4 +1,7 @@
-**/saved/**
+models/
+caches/
+.direnv/
+.envrc
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
