@@ -12,5 +12,8 @@ or install nix and run `nix-shell`
 	run `nix-shell`
 
 
+# Running training
+	`python src/GAN_dynamics_learning.py --env_name CustomBipedalWalker-v0 --learning_rate 1e-3 --direct --latent_size 0`
+
 # Running examples
-	python src/test.py
+	`python src/test.py --random_actor`

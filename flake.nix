@@ -3,7 +3,8 @@
   description = "A reproducible environment for learning certifiable controllers";
 
   inputs.flake-utils.url = "github:numtide/flake-utils";
-  inputs.nixpkgs.url = "nixpkgs/ff1ea3a36c1dfafdf0490e0d144c5a0ed0891bb9";
+  # inputs.nixpkgs.url = "nixpkgs/ff1ea3a36c1dfafdf0490e0d144c5a0ed0891bb9";
+  inputs.nixpkgs.url = "nixpkgs/6120ac5cd201f6cb593d1b80e861be0342495be9";
   inputs.mach-nix = {
       url = github:DavHau/mach-nix;
   };
@@ -31,6 +32,8 @@
           python-with-deps = mach-nix-utils.mkPython {
             _.box2d-py = { nativeBuildInputs.add = with pkgs; [ swig ]; }; 
             providers.pyglet="nixpkgs";
+            providers.pygame="nixpkgs";
+
             requirements= ''
               numpy
               tensorflow
@@ -40,6 +43,7 @@
               mypy
               matplotlib
               box2d-py
+              pygame
             '';
           };
       in {
@@ -47,7 +51,6 @@
           buildInputs=[
             python-with-deps
             vscodium-with-extensions
-            pkgs.swig
           ];
         };
       }

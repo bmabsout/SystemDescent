@@ -1,5 +1,7 @@
 import envs.ModeledPendulumDir.ModeledPendulum
 import envs.Acrobot_continuous.ModeledAcrobot_continuous
+import envs.bipedal_walker.modeled_bipedal_walker
+import envs.bipedal_walker.bipedal_walker
 import envs.Acrobot_continuous.Acrobot_continuous
 import gym
 import numpy as np

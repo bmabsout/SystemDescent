@@ -141,10 +141,11 @@ def np_dict_to_dict_generator(d: dict):
 def map_dict(f, d):
     return dict(map(lambda kv: (kv[0], f(kv[1])), d.items()))
 
-def train_loop(list_of_batches, train_step, end_of_epoch=None):
+def train_loop(list_of_batches, train_step, freq_callback=None, end_of_epoch=None):
+    time_at_reset = time.time()
     for epoch, batches in enumerate(list_of_batches):
         print(f"\nStart of epoch {epoch}")
-        start_time = time.time()
+        epoch_time = time.time()
         if type(batches) is dict:
             batches = np_dict_to_dict_generator(batches)
         # num_batches = len(batches)
@@ -153,11 +154,18 @@ def train_loop(list_of_batches, train_step, end_of_epoch=None):
             update_description, desc_pb = desc_line()
             with desc_pb:
                 for batch in pb:
+                    if freq_callback:
+                        (freq, callback) = freq_callback
+                        if(time.time() - time_at_reset > freq):
+                            callback(epoch)
+                            time_at_reset = time.time()
                     update_description(train_step(batch))
 
+
         if end_of_epoch:
-            end_of_epoch(epoch, time.time() - start_time)
-        print(f"Time taken: {(time.time() - start_time):.2f}s")
+            end_of_epoch(epoch)
+
+        print(f"Time taken: {(time.time() - epoch_time):.2f}s")
 
 
 def mean_grad_size(grads):

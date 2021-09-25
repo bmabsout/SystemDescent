@@ -11,12 +11,13 @@ import pathlib
 import utils
 from typing import Union
 import envs.Acrobot_continuous.Acrobot_continuous
+import envs.bipedal_walker.bipedal_walker
 
 def random_policy(obs, action_space):
     return action_space.sample()
 
 
-def generator_def(env: gym.Env, hidden_sizes: list[int]):
+def generator_def(env: gym.Env, hidden_sizes: list[int], latent_size:int):
     obs_space = env.observation_space
     act_space = env.action_space
     if(not (isinstance(act_space, gym.spaces.Box) and isinstance(obs_space, gym.spaces.Box))):
@@ -25,12 +26,12 @@ def generator_def(env: gym.Env, hidden_sizes: list[int]):
     state_size = obs_space.shape[0]
     state_input = keras.Input(shape=(obs_space.shape[0],))
     action_input = keras.Input(shape=(act_space.shape[0],))
-    latent_input = keras.Input(shape=(1,))
+    latent_input = keras.Input(shape=(latent_size,))
 
     dense = layers.Concatenate()([state_input, action_input, latent_input])
     for hidden_size in hidden_sizes:
-        dense = layers.Dense(hidden_size, activation="selu",
-                             kernel_initializer='lecun_normal',
+        dense = layers.Dense(hidden_size, activation="sigmoid",
+                            #  kernel_initializer='lecun_normal',
                              kernel_regularizer=utils.PMean())(dense)
     low = np.array(obs_space.low)
     high = np.array(obs_space.high)
@@ -82,7 +83,6 @@ def gather_mini_batch(env: gym.Env, episode_size: int, policy=random_policy):
                 ep_len = 0
     return true_generator
 
-
 def discriminator_def(env: gym.Env, hidden_sizes: list[int], num_states: int):
     obs_space = env.observation_space
     act_space = env.action_space
@@ -114,7 +114,6 @@ def discriminator_def(env: gym.Env, hidden_sizes: list[int], num_states: int):
     model.summary()
     return model
 
-
 @tf.function
 def generate_fakes(generator, batch):
     latent_shape = tuple(batch["state"].shape[0:2]) + tuple(generator.input["latent"].shape[1:])
@@ -139,38 +138,27 @@ def gan_dfls(generator, discriminator, real_batch):
     fakes = generate_fakes(generator, real_batch)
     fakes2 = generate_fakes(generator, real_batch)
     fooled = utils.p_mean(discriminator(fakes), 2.0)
+    fooled2 = utils.p_mean(discriminator(fakes2), 2.0)
     discriminator_regularizer = 1 - tf.tanh(tf.reduce_mean(discriminator.losses)*10.0)
     generator_regularizer = 1 - tf.tanh(tf.reduce_mean(generator.losses)*10.0)
     real_fake_dfl = utils.DFL(0.0, {
         "real": utils.p_mean(discriminator(real_batch), 0.0),
         "fake": utils.p_mean(1 - discriminator(fakes), 0.0)
     })
-    generator_dfl = utils.DFL(0.0, {
+    fooled2_normalized = utils.smooth_constraint(fooled2, 0.0, 0.5, 0.0, 0.97, starts_linear=True)
+    generator_dfl = utils.DFL(2.0, {
 #         "fooled": utils.p_mean(discriminator(fakes2),2.0)
-        "fooled": utils.smooth_constraint(utils.p_mean(discriminator(fakes2), 2.0), 0.0, 0.5, 0.0, 0.97, starts_linear=True),
+        "fooled": fooled2_normalized,
         # "direct": direct_dfls(generator, real_batch)
         # "reg": tf.where(tf.stop_gradient(utils.dfl_scalar(real_fake_dfl)) < 0.1, generator_regularizer, 1.0)
     })
-    
+    generator_badness = 1.0 - tf.minimum(tf.stop_gradient(fooled2)*2, 1.0)
     discriminator_dfl = utils.DFL(0.0, {
         "rf": real_fake_dfl,
-        "reg": tf.where(tf.stop_gradient(fooled) < 0.2, discriminator_regularizer, 1.0)
+        "reg": discriminator_regularizer*generator_badness + (1.0 - generator_badness)
+        # linear interpolation between the regularizer and 1.0 decided by the amount fooled
     })
     return generator_dfl, discriminator_dfl
-
-
-# @tf.function
-# def gan_dfls(generator, discriminator, real_batch):
-#     fakes = generate_fakes(generator, real_batch)
-#     generator_dfl = utils.DFL(2.0, {
-#         "fooled": utils.p_mean(discriminator(fakes), 1.0,slack=1e-5),
-#         # "direct": direct_dfls(generator, real_batch)
-#     })
-#     discriminator_dfl = utils.DFL(0.0, {
-#         "real": utils.p_mean(discriminator(real_batch), 0.0),
-#         "fake": utils.p_mean(1 - discriminator(fakes), 0.0, slack=1e-10)
-#     })
-#     return generator_dfl, discriminator_dfl
 
 
 def train_direct_step(generator, learning_rate):
@@ -195,13 +183,9 @@ def train_direct_step(generator, learning_rate):
     return train_and_show
 
 
-train_discriminator = True
-
-
 def train_GAN_step(generator, discriminator, learning_rate):
-    global train_discriminator
     gen_optimizer = keras.optimizers.Adam(lr=learning_rate)
-    disc_optimizer = keras.optimizers.Adam(lr=3e-4)
+    disc_optimizer = keras.optimizers.Adam(lr=learning_rate)
 
     @tf.function
     def gradient_step(batch):
@@ -216,10 +200,7 @@ def train_GAN_step(generator, discriminator, learning_rate):
         disc_optimizer.apply_gradients(zip(disc_grads, discriminator.trainable_weights))
         gen_grads = gen_tape.gradient(generator_loss, generator.trainable_weights)
         gen_optimizer.apply_gradients(zip(gen_grads, generator.trainable_weights))
-    # else:
-        # tf.print(utils.mean_grad_size(gen_grads))
-        # tf.print(utils.mean_grad_size(disc_grads))
-        # tf.print(utils.mean_grad_size(discriminator.trainable_weights))
+
         return (generator_scalar, generator_dfl), (discriminator_scalar, discriminator_dfl)
 
     def train_and_show(batch):
@@ -245,12 +226,14 @@ def system_identify(env_name: str,
                     num_validation_batches: int,
                     save_freq: int,
                     learning_rate: float,
+                    latent_size: int,
+                    direct: bool,
                     load_saved: Union[str, None]):
     env = gym.make(env_name)
     if load_saved:
         generator = tf.keras.models.load_model(load_saved)
     else:
-        generator = generator_def(env, generator_hidden_sizes)
+        generator = generator_def(env, generator_hidden_sizes, latent_size)
     discriminator = discriminator_def(env, discriminator_hidden_sizes, num_states)
     filepath = utils.random_subdir("models/" + env_name)
     dataset_spec = ({
@@ -265,31 +248,33 @@ def system_identify(env_name: str,
     validation_data = dataset.take(num_validation_batches).cache()
     pathlib.Path("caches").mkdir(parents=True, exist_ok=True)
     data = dataset.take(num_batches).apply(tf.data.experimental.assert_cardinality(num_batches)).cache(f"caches/{env_name}_nb:{num_batches}_e:{episode_size}_b:{batch_size}")
-    trainer = train_GAN_step(generator, discriminator, learning_rate)
-    # trainer = train_direct_step(generator, learning_rate)
+    if direct:
+        trainer = train_direct_step(generator, learning_rate)
+    else:
+        trainer = train_GAN_step(generator, discriminator, learning_rate)
 
-    def end_of_epoch(epoch, dt):
-        global train_discriminator
-        train_discriminator = not train_discriminator
+    def save_checkpoint(epoch):
         utils.save_checkpoint(filepath, generator, epoch)
 
-    utils.train_loop([data]*epochs, trainer, end_of_epoch)
+    utils.train_loop([data]*epochs, trainer, freq_callback=(save_freq, save_checkpoint))
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--env_name', type=str, help="gym environment", default="Pendulum-v0")
-    parser.add_argument('--save_freq', type=int, default=5)
+    parser.add_argument('--save_freq', type=int, default=15)
     parser.add_argument('--learning_rate', type=float, default=1e-4)
     parser.add_argument('--episode_size', type=int, default=200)
     parser.add_argument('--batch_size', type=int, default=100)
     parser.add_argument('--num_states', type=int, default=1)
-    parser.add_argument('--num_batches', type=int, default=10000)
+    parser.add_argument('--num_batches', type=int, default=1000)
     parser.add_argument('--num_validation_batches', type=int, default=20)
+    parser.add_argument('--latent_size', type=int, default=1)
     parser.add_argument('--epochs', type=int, default=200)
+    parser.add_argument('--direct', action='store_true')
     parser.add_argument('--load_saved', type=str, default=None)
-    parser.add_argument('--generator_hidden_sizes', nargs="+", type=int, default=[200,100])
-    parser.add_argument('--discriminator_hidden_sizes', nargs="+", type=int, default=[200, 100])
+    parser.add_argument('--generator_hidden_sizes', nargs="+", type=int, default=[500, 500])
+    parser.add_argument('--discriminator_hidden_sizes', nargs="+", type=int, default=[300, 300])
     args = parser.parse_args()
     # tf.debugging.experimental.enable_dump_debug_info('my-tfdbg-dumps', tensor_debug_mode="FULL_HEALTH")
     system_identify(**vars(args))
