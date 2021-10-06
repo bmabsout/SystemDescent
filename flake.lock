@@ -2,11 +2,11 @@
   "nodes": {
     "flake-utils": {
       "locked": {
-        "lastModified": 1623875721,
-        "narHash": "sha256-A8BU7bjS5GirpAUv4QA+QnJ4CceLHkcXdRp4xITDB0s=",
+        "lastModified": 1631561581,
+        "narHash": "sha256-3VQMV5zvxaVLvqqUrNz3iJelLw30mIVSfZmAaauM3dA=",
         "owner": "numtide",
         "repo": "flake-utils",
-        "rev": "f7e004a55b120c02ecb6219596820fcd32ca8772",
+        "rev": "7e5bf3925f6fbdfaf50a2a7ca0be2879c4261d19",
         "type": "github"
       },
       "original": {
@@ -28,6 +28,18 @@
         "owner": "numtide",
         "repo": "flake-utils",
         "type": "github"
+      }
+    },
+    "gym-pybullet-drones": {
+      "flake": false,
+      "locked": {
+        "narHash": "sha256-yclj9wekeGFr1SKtY1Cdq7DH3SPzGT75Q3AU04lSNGA=",
+        "path": "./gym-pybullet-drones",
+        "type": "path"
+      },
+      "original": {
+        "path": "./gym-pybullet-drones",
+        "type": "path"
       }
     },
     "mach-nix": {
@@ -99,6 +111,7 @@
     "root": {
       "inputs": {
         "flake-utils": "flake-utils",
+        "gym-pybullet-drones": "gym-pybullet-drones",
         "mach-nix": "mach-nix",
         "nixpkgs": "nixpkgs_2"
       }
