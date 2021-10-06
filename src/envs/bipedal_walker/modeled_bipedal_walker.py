@@ -158,7 +158,6 @@ class ModeledBipedalWalker(gym.Env, EzPickle):
         )
 
         self.model = keras.models.load_model(model_path)
-        self.model.summary()
 
         def run_nn(obs, action):
             latent_shape = self.model.input["latent"].shape

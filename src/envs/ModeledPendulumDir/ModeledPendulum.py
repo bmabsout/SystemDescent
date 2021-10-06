@@ -50,7 +50,9 @@ class ModeledPendulumEnv(gym.Env):
         self.model = keras.models.load_model(model_path)
 
         def run_nn(obs, action):
-            return self.model({"state": np.array([obs]), "action": np.array([action]), "latent": np.random.normal(self.model.input["latent"].shape[1:])}, training=False)[0]
+            latent_shape = self.model.input["latent"].shape
+            latent = np.array([[]]) if latent_shape[1] == 0 else np.random.normal(latent_shape[1:])
+            return self.model({"state": np.array([obs]), "action": np.array([action]), "latent": latent}, training=False)[0]
 
         print("predicted:", run_nn(np.array([0,1,2]), np.array(0)))
         self.nn = run_nn

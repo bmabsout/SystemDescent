@@ -23,21 +23,26 @@ def generator_def(env: gym.Env, hidden_sizes: list[int], latent_size:int):
     if(not (isinstance(act_space, gym.spaces.Box) and isinstance(obs_space, gym.spaces.Box))):
         print(act_space, obs_space)
         raise NotImplementedError
+    obs_low = np.array(obs_space.low)
+    obs_high = np.array(obs_space.high)
+    act_low = np.array(act_space.low)
+    act_high = np.array(act_space.high)
     state_size = obs_space.shape[0]
     state_input = keras.Input(shape=(obs_space.shape[0],))
+    normalized_state = (state_input - obs_low)/(obs_high - obs_low)
     action_input = keras.Input(shape=(act_space.shape[0],))
+    normalized_action = (action_input - act_low)/(act_high - act_low)
     latent_input = keras.Input(shape=(latent_size,))
 
-    dense = layers.Concatenate()([state_input, action_input, latent_input])
+    dense = layers.Concatenate()([normalized_state, normalized_action, latent_input])
     for hidden_size in hidden_sizes:
-        dense = layers.Dense(hidden_size, activation="sigmoid",
-                            #  kernel_initializer='lecun_normal',
+        dense = layers.Dense(hidden_size, activation="selu",
+                             kernel_initializer='lecun_normal',
                              kernel_regularizer=utils.PMean())(dense)
-    low = np.array(obs_space.low)
-    high = np.array(obs_space.high)
+    
 
     dense = layers.Dense(state_size)(dense)
-    outputs = layers.Activation('sigmoid')(dense)*(high-low) + low
+    outputs = layers.Activation('sigmoid')(dense)*(obs_high-obs_low) + obs_low
     model = keras.Model(
         inputs={
             "state": state_input,
@@ -49,7 +54,6 @@ def generator_def(env: gym.Env, hidden_sizes: list[int], latent_size:int):
     )
     model.summary()
     return model
-
 
 @tf.function
 def generator_2d_batch(generator, batch):
@@ -130,7 +134,10 @@ def generate_fakes(generator, batch):
 @tf.function
 def direct_dfls(generator, batch):
     abs_diff = tf.abs(generate_fakes(generator, batch)["next_state"]-batch["next_state"])
-    return utils.p_mean(1.0/(1.0 + abs_diff), 1.0)
+    return utils.DFL(0.0, {
+        "distance": utils.p_mean(1.0/(1.0 + abs_diff), 1.0),
+        # "reg": 1 - tf.tanh(tf.reduce_mean(generator.losses)*10.0)
+    })
 
 
 @tf.function
@@ -171,6 +178,8 @@ def train_direct_step(generator, learning_rate):
                 generator_dfl = direct_dfls(generator, batch)
                 generator_scalar = utils.dfl_scalar(generator_dfl)
                 generator_loss = 1-generator_scalar
+
+            # selected_sub_weights = map(lambda matrix: , generator.trainable_weights)
 
             gen_grads = gen_tape.gradient(generator_loss, generator.trainable_weights)
             gen_optimizer.apply_gradients(zip(gen_grads, generator.trainable_weights))
@@ -254,6 +263,8 @@ def system_identify(env_name: str,
         trainer = train_GAN_step(generator, discriminator, learning_rate)
 
     def save_checkpoint(epoch):
+        for batch in validation_data:
+            print(show_info(direct_dfls(generator, batch)))
         utils.save_checkpoint(filepath, generator, epoch)
 
     utils.train_loop([data]*epochs, trainer, freq_callback=(save_freq, save_checkpoint))
@@ -273,7 +284,7 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', type=int, default=200)
     parser.add_argument('--direct', action='store_true')
     parser.add_argument('--load_saved', type=str, default=None)
-    parser.add_argument('--generator_hidden_sizes', nargs="+", type=int, default=[500, 500])
+    parser.add_argument('--generator_hidden_sizes', nargs="+", type=int, default=[100, 100, 100])
     parser.add_argument('--discriminator_hidden_sizes', nargs="+", type=int, default=[300, 300])
     args = parser.parse_args()
     # tf.debugging.experimental.enable_dump_debug_info('my-tfdbg-dumps', tensor_debug_mode="FULL_HEALTH")
