@@ -24,7 +24,7 @@
 
           mach-nix-utils = import mach-nix {
             inherit pkgs;
-            python = "python39";
+            python = "python39Full";
           };
 
           vscodium-with-extensions = pkgs.vscode-with-extensions.override {
@@ -37,6 +37,7 @@
             providers.pyglet="nixpkgs";
             providers.pygame="nixpkgs";
             providers.pybullet="nixpkgs";
+            providers.tkinter="nixpkgs";
 
             requirements= ''
               numpy
