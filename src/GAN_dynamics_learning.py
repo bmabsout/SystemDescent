@@ -11,7 +11,8 @@ import pathlib
 import utils
 from typing import Union
 import envs.Acrobot_continuous.Acrobot_continuous
-import envs.bipedal_walker.bipedal_walker
+# import envs.bipedal_walker.bipedal_walker
+import neuroflight_trainer.gyms
 
 def random_policy(obs, action_space):
     return action_space.sample()
@@ -20,13 +21,14 @@ def random_policy(obs, action_space):
 def generator_def(env: gym.Env, hidden_sizes: list[int], latent_size:int):
     obs_space = env.observation_space
     act_space = env.action_space
+    print(act_space, obs_space)
     if(not (isinstance(act_space, gym.spaces.Box) and isinstance(obs_space, gym.spaces.Box))):
-        print(act_space, obs_space)
         raise NotImplementedError
     obs_low = np.array(obs_space.low)
     obs_high = np.array(obs_space.high)
     act_low = np.array(act_space.low)
     act_high = np.array(act_space.high)
+
     state_size = obs_space.shape[0]
     state_input = keras.Input(shape=(obs_space.shape[0],))
     normalized_state = (state_input - obs_low)/(obs_high - obs_low)
@@ -42,7 +44,10 @@ def generator_def(env: gym.Env, hidden_sizes: list[int], latent_size:int):
     
 
     dense = layers.Dense(state_size)(dense)
-    outputs = layers.Activation('sigmoid')(dense)*(obs_high-obs_low) + obs_low
+    if(np.any(np.isinf(high) | np.isinf(low))):
+        outputs = dense
+    else:
+        outputs = layers.Activation('sigmoid')(dense)*(high-low) + low
     model = keras.Model(
         inputs={
             "state": state_input,
@@ -274,7 +279,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--env_name', type=str, help="gym environment", default="Pendulum-v0")
     parser.add_argument('--save_freq', type=int, default=15)
-    parser.add_argument('--learning_rate', type=float, default=1e-4)
+    parser.add_argument('--learning_rate', type=float, default=1e-3)
     parser.add_argument('--episode_size', type=int, default=200)
     parser.add_argument('--batch_size', type=int, default=100)
     parser.add_argument('--num_states', type=int, default=1)

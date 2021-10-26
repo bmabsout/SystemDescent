@@ -55,6 +55,9 @@
                 src = gym-pybullet-drones;
               })
             ];
+            # packagesExtra = [
+      	     #  /home/bmabsout/Documents/gymfc
+            # ];
           };
       in {
         devShell = pkgs.mkShell {
@@ -62,6 +65,7 @@
             python-with-deps
             vscodium-with-extensions
           ];
+
         };
       }
     );
