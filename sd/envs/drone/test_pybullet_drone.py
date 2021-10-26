@@ -20,6 +20,7 @@ import random
 import numpy as np
 import pybullet as p
 import matplotlib.pyplot as plt
+import noise
 
 from gym_pybullet_drones.envs.BaseAviary import DroneModel, Physics
 from gym_pybullet_drones.envs.CtrlAviary import CtrlAviary
@@ -75,7 +76,7 @@ if __name__ == "__main__":
     parser.add_argument('--plot',               default=True,       type=str2bool,      help='Whether to plot the simulation results (default: True)', metavar='')
     parser.add_argument('--user_debug_gui',     default=False,      type=str2bool,      help='Whether to add debug lines and parameters to the GUI (default: False)', metavar='')
     parser.add_argument('--aggregate',          default=True,       type=str2bool,      help='Whether to aggregate physics steps (default: True)', metavar='')
-    parser.add_argument('--obstacles',          default=False,       type=str2bool,      help='Whether to add obstacles to the environment (default: True)', metavar='')
+    parser.add_argument('--obstacles',          default=False,       type=str2bool,     help='Whether to add obstacles to the environment (default: True)', metavar='')
     parser.add_argument('--simulation_freq_hz', default=240,        type=int,           help='Simulation frequency in Hz (default: 240)', metavar='')
     parser.add_argument('--control_freq_hz',    default=48,         type=int,           help='Control frequency in Hz (default: 48)', metavar='')
     parser.add_argument('--duration_sec',       default=12,         type=int,           help='Duration of the simulation in seconds (default: 5)', metavar='')
@@ -110,7 +111,7 @@ if __name__ == "__main__":
                         obstacles=ARGS.obstacles,
                         user_debug_gui=ARGS.user_debug_gui
                     )
-
+    
     for drone_id, location in zip(env.DRONE_IDS, INIT_XYZS):
         cid = p.createConstraint(drone_id, -1, -1, -1, p.JOINT_POINT2POINT, [0, 0, 0], [0, 0, 0], location)
         # ball joint constrains the drone to a certain point in space
@@ -119,6 +120,11 @@ if __name__ == "__main__":
     #### Obtain the PyBullet Client ID from the environment ####
     PYB_CLIENT = env.getPyBulletClient()
     
+    p.loadURDF("./assets/nf1.urdf",
+                   [0, 0, 0.5],
+                   p.getQuaternionFromEuler([0, 0, 0]),
+                   physicsClientId=PYB_CLIENT
+                   )
     #### Initialize the logger #################################
     logger = Logger(logging_freq_hz=int(ARGS.simulation_freq_hz/AGGR_PHY_STEPS),
                     num_drones=ARGS.num_drones
@@ -149,14 +155,6 @@ if __name__ == "__main__":
                         target_rpy_rates=np.array([100.0,0.0,0.0]),
                         control_timestep=CTRL_EVERY_N_STEPS*env.TIMESTEP,
                     )
-                # action[str(j)], _, _ = ctrl[j].computeControlFromState(
-                #     control_timestep=CTRL_EVERY_N_STEPS*env.TIMESTEP,
-                #     state=obs[str(j)]["state"],
-                #     target_pos=np.hstack([TARGET_POS[wp_counters[j], 0:2], INIT_XYZS[j, 2]]),
-                #     # target_pos=INIT_XYZS[j, :] + TARGET_POS[wp_counters[j], :],
-                #     target_rpy=INIT_RPYS[j, :]
-                # )
-                print(action)
 
             #### Go to the next way point and loop #####################
             for j in range(ARGS.num_drones): 

@@ -11,16 +11,8 @@ import utils
 
 from gym.spaces import Box, Discrete
 
-from gym.envs.registration import register
-
 def random_policy(obs, action_space):
     return action_space.sample()
-
-register(
-    id='ModeledPendulum-v0',
-    entry_point='envs.ModeledPendulumDir.ModeledPendulum:ModeledPendulumEnv',
-    max_episode_steps=200,
-)
 
 class ModeledPendulumEnv(gym.Env):
     metadata = {

@@ -2,11 +2,11 @@
   "nodes": {
     "flake-utils": {
       "locked": {
-        "lastModified": 1631561581,
-        "narHash": "sha256-3VQMV5zvxaVLvqqUrNz3iJelLw30mIVSfZmAaauM3dA=",
+        "lastModified": 1634851050,
+        "narHash": "sha256-N83GlSGPJJdcqhUxSCS/WwW5pksYf3VP1M13cDRTSVA=",
         "owner": "numtide",
         "repo": "flake-utils",
-        "rev": "7e5bf3925f6fbdfaf50a2a7ca0be2879c4261d19",
+        "rev": "c91f3de5adaf1de973b797ef7485e441a65b8935",
         "type": "github"
       },
       "original": {
@@ -33,7 +33,7 @@
     "gym-pybullet-drones": {
       "flake": false,
       "locked": {
-        "narHash": "sha256-yclj9wekeGFr1SKtY1Cdq7DH3SPzGT75Q3AU04lSNGA=",
+        "narHash": "sha256-AhGDfD0l2ByfhKBSHPUqCgvJl6l2DfmllOuPC/H3AhY=",
         "path": "./gym-pybullet-drones",
         "type": "path"
       },
@@ -49,11 +49,11 @@
         "pypi-deps-db": "pypi-deps-db"
       },
       "locked": {
-        "lastModified": 1629464241,
-        "narHash": "sha256-DLAVO2fyj5VxDf/7FoBsXZTQcz1/deJ9EFRqO9BD0tI=",
+        "lastModified": 1634711045,
+        "narHash": "sha256-m5A2Ty88NChLyFhXucECj6+AuiMZPHXNbw+9Kcs7F6Y=",
         "owner": "DavHau",
         "repo": "mach-nix",
-        "rev": "d223656fc0eff33f4da77d69db19752edc9a5ba5",
+        "rev": "4433f74a97b94b596fa6cd9b9c0402104aceef5d",
         "type": "github"
       },
       "original": {
@@ -113,7 +113,24 @@
         "flake-utils": "flake-utils",
         "gym-pybullet-drones": "gym-pybullet-drones",
         "mach-nix": "mach-nix",
-        "nixpkgs": "nixpkgs_2"
+        "nixpkgs": "nixpkgs_2",
+        "tf2rl": "tf2rl"
+      }
+    },
+    "tf2rl": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1630457806,
+        "narHash": "sha256-Ugk8lenTrTKd0W2gdAvl1Hq9iyPLhxB6JiddpWVhI9k=",
+        "owner": "keiohta",
+        "repo": "tf2rl",
+        "rev": "d1f67c540ddad3dcfbb357f1fe3f00d8a2a911c6",
+        "type": "github"
+      },
+      "original": {
+        "owner": "keiohta",
+        "repo": "tf2rl",
+        "type": "github"
       }
     }
   },

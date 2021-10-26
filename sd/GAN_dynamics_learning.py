@@ -10,8 +10,7 @@ from tensorflow.keras import layers
 import pathlib
 import utils
 from typing import Union
-import envs.Acrobot_continuous.Acrobot_continuous
-import envs.bipedal_walker.bipedal_walker
+import sd.envs
 
 def random_policy(obs, action_space):
     return action_space.sample()

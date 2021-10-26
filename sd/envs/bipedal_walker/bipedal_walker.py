@@ -18,11 +18,6 @@ from gym.utils import colorize, seeding, EzPickle
 from gym.envs.registration import register
 
 
-register(
-    id='CustomBipedalWalker-v0',
-    entry_point='envs.bipedal_walker.bipedal_walker:BipedalWalker',
-    max_episode_steps=200,
-)
 
 # This is simple 4-joints walker robot environment.
 #
