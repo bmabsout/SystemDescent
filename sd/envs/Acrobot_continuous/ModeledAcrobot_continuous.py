@@ -9,11 +9,7 @@ from tensorflow import keras
 
 from gym.envs.registration import register
 
-register(
-    id='ModeledAcrobot_continuous-v0',
-    entry_point='envs.Acrobot_continuous.ModeledAcrobot_continuous:AcrobotEnv',
-    max_episode_steps=200,
-)
+
 
 __copyright__ = "Copyright 2013, RLPy http://acl.mit.edu/RLPy"
 __credits__ = [

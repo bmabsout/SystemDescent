@@ -9,26 +9,35 @@
     # gym-pybullet-drones.url = "github:utiasDSL/gym-pybullet-drones";
     gym-pybullet-drones.url = "path:./gym-pybullet-drones";
     gym-pybullet-drones.flake = false;
+    
+    tf2rl.url = "github:keiohta/tf2rl";
+    tf2rl.flake = false;
+    # sd.url = "path:./.";
+    # sd.flake = false;
   };
 
-  outputs = { self, flake-utils, nixpkgs, mach-nix, gym-pybullet-drones }:
-    flake-utils.lib.eachDefaultSystem (system:
-      let pkgs = (import (nixpkgs) { config = {allowUnfree = true;}; system =
+  outputs = inputs:
+    inputs.flake-utils.lib.eachDefaultSystem (system:
+      let pkgs = (import (inputs.nixpkgs) { config = {allowUnfree = true;}; system =
               "x86_64-linux";
                   });
+                  
           extensions = (with pkgs.vscode-extensions; [
             ms-python.python
             ms-toolsai.jupyter
             jnoortheen.nix-ide
+            
           ]);
 
-          mach-nix-utils = import mach-nix {
+          mach-nix-utils = import inputs.mach-nix {
             inherit pkgs;
-            python = "python39";
+            python = "python39Full";
+            # pypiDataRev = "83af05378a5ca28e8e39cbc5760686f42f880dc4";
+            # pypiDataSha256= sha256:1pmdvx4dngkqiy42gmpqpldlywrarxlzhdgb7lwmflrn05fma65h;
           };
 
           vscodium-with-extensions = pkgs.vscode-with-extensions.override {
-            vscode = pkgs.vscodium;
+            vscode = pkgs.vscodium.fhs;
             vscodeExtensions = extensions;
           };
 
@@ -37,23 +46,24 @@
             providers.pyglet="nixpkgs";
             providers.pygame="nixpkgs";
             providers.pybullet="nixpkgs";
+            providers.tkinter="nixpkgs";
+            providers.matplotlib="nixpkgs";
+            #providers.tensorflow="nixpkgs";
 
-            requirements= ''
-              numpy
-              tensorflow
-              scipy
-              gym
-              tqdm
-              mypy
-              matplotlib
-              box2d-py
-              pygame
-              pybullet
-            '';
+            requirements= builtins.readFile ./requirements.txt;
             packagesExtra=[
-              (mach-nix-utils.buildPythonPackage {
-                src = gym-pybullet-drones;
-              })
+              # (mach-nix-utils.buildPythonPackage {
+              #   src = gym-pybullet-drones;
+              # })
+              # ./.
+              # (mach-nix-utils.buildPythonPackage {
+              #   src = tf2rl;
+              #   requirements=''
+              #   '';
+              # })
+              # (mach-nix-utils.buildPythonPackage {
+              #   src = sd;
+              # })
             ];
             # packagesExtra = [
       	     #  /home/bmabsout/Documents/gymfc
@@ -62,8 +72,10 @@
       in {
         devShell = pkgs.mkShell {
           buildInputs=[
-            python-with-deps
             vscodium-with-extensions
+            pkgs.python39Packages.pip
+            pkgs.python39Packages.virtualenv
+            python-with-deps
           ];
 
         };

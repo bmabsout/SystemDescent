@@ -1,0 +1,449 @@
+<?xml version='1.0'?>
+
+<robot name="nf1">
+  <properties arm="0.175" kf="3.16e-10" km="7.94e-12 -7.94e-12 7.94e-12 -7.94e-12" max_rpm="115113" max_speed_kmh="50" drag_coeff_xy="0" drag_coeff_z="0" />
+
+
+  <link name='frame'>
+    <inertial>
+      <origin xyz="0 0 0.044083" rpy="0 0 1.5708"/>
+      <mass value="0.066"></mass>
+      <inertia
+        ixx="0.0001678344831307261"
+        ixy="0"
+        ixz="0"
+        iyy="0.00011834309223915557"
+        iyz="0"
+        izz="0.0002725710742660843"
+      >
+      </inertia>
+    </inertial>
+
+    <visual name='frame_visual'>
+      <origin xyz="0 0 0.037" rpy="0 0 1.5708"/>
+      <geometry>
+        <mesh
+          scale="0.001 0.001 0.001"
+          filename="./assets/nf1/meshes/frame_floss2.dae"
+        >
+        </mesh>
+      </geometry>
+      <material name="grey">
+        <color rgba=".2 .2 .2 1"/>
+      </material> 
+    </visual>
+
+    <collision>
+      <origin xyz="0 0 0.044" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius=".1" length=".025"/>
+      </geometry>
+    </collision> 
+  </link>
+
+  <link name='battery'>
+    <inertial>
+      <origin xyz="0 0 0.0185" rpy="0 0 1.5708"></origin>
+      <mass value="0.194"></mass>
+      <inertia
+        ixx="0.00010828433774545583"
+        ixy="0"
+        ixz="0"
+        iyy="4.193633637735583e-05"
+        iyz="0"
+        izz="0.00010595633504345831"
+      >
+      </inertia>
+    </inertial>
+
+    <visual name='battery_visual'>
+      <origin rpy="0 0 1.5708"></origin>
+      <geometry>
+        <mesh
+          scale="0.001 0.001 0.001"
+          filename="./assets/nf1/meshes/battery_tattu_rline_1550mah.dae"
+        >
+        </mesh>
+      </geometry>
+      <material name="yellow">
+        <color rgba=".7 .7 .0 1"/>
+      </material> 
+    </visual>
+
+    <velocity_decay/>
+    <self_collide>0</self_collide>
+  </link>
+
+  <joint name="battery_joint" type="fixed">
+      <child link="battery"></child>
+      <parent link="frame"></parent>
+  </joint>
+
+    
+  <link name="motor0">
+    <inertial>
+      <origin xyz="-0.0805 -0.07 0.05"/>
+      <mass value="0.02"></mass>
+      <inertia
+        ixx="1.3131086850610764e-06"
+        ixy="0"
+        ixz="0"
+        iyy="1.3131086827940408e-06"
+        iyz="0"
+        izz="1.7728840665083659e-06"
+      >
+      </inertia>
+    </inertial>
+
+    <visual name="motor0_visual">
+      <origin xyz="-0.0805 -0.07 0.042"/>
+      <geometry>
+        <mesh
+          scale="0.001 0.001 0.001"
+          filename="./assets/nf1/meshes/motor_hyperlite_2204_2522.dae"
+        >
+        </mesh>
+      </geometry>
+      <material name="black">
+        <color rgba=".0 .0 .0 1"/>
+      </material> 
+    </visual>
+
+    <velocity_decay/>
+    <self_collide>0</self_collide>
+  </link>
+
+  <joint name="motor0_joint" type="fixed">
+      <child link="motor0"></child>
+      <parent link="frame"></parent>
+  </joint>
+
+  
+  <link name="motor1">
+    <inertial>
+      <origin xyz="0.0805 -0.07 0.05"/>
+      <mass value="0.02"></mass>
+      <inertia
+        ixx="1.3131086850610764e-06"
+        ixy="0"
+        ixz="0"
+        iyy="1.3131086827940408e-06"
+        iyz="0"
+        izz="1.7728840665083659e-06"
+      >
+      </inertia>
+    </inertial>
+
+    <visual name="motor1_visual">
+      <origin xyz="0.0805 -0.07 0.042"/>
+      <geometry>
+        <mesh
+          scale="0.001 0.001 0.001"
+          filename="./assets/nf1/meshes/motor_hyperlite_2204_2522.dae"
+        >
+        </mesh>
+      </geometry>
+      <material name="black">
+        <color rgba=".0 .0 .0 1"/>
+      </material> 
+    </visual>
+
+    <velocity_decay/>
+    <self_collide>0</self_collide>
+  </link>
+
+  <joint name="motor1_joint" type="fixed">
+      <child link="motor1"></child>
+      <parent link="frame"></parent>
+  </joint>
+
+  
+  <link name="motor2">
+    <inertial>
+      <origin xyz="-0.0805 0.07 5"/>
+      <mass value="0.02"></mass>
+      <inertia
+        ixx="1.3131086850610764e-06"
+        ixy="0"
+        ixz="0"
+        iyy="1.3131086827940408e-06"
+        iyz="0"
+        izz="1.7728840665083659e-06"
+      >
+      </inertia>
+    </inertial>
+
+    <visual name="motor2_visual">
+      <origin xyz="-0.0805 0.07 0.042"/>
+      <geometry>
+        <mesh
+          scale="0.001 0.001 0.001"
+          filename="./assets/nf1/meshes/motor_hyperlite_2204_2522.dae"
+        >
+        </mesh>
+      </geometry>
+      <material name="black">
+        <color rgba=".0 .0 .0 1"/>
+      </material> 
+    </visual>
+
+    <velocity_decay/>
+    <self_collide>0</self_collide>
+  </link>
+
+  <joint name="motor2_joint" type="fixed">
+      <child link="motor2"></child>
+      <parent link="frame"></parent>
+  </joint>
+
+  
+  <link name="motor3">
+    <inertial>
+      <origin xyz="0.0805 0.07 0.05"/>
+      <mass value="0.02"></mass>
+      <inertia
+        ixx="1.3131086850610764e-06"
+        ixy="0"
+        ixz="0"
+        iyy="1.3131086827940408e-06"
+        iyz="0"
+        izz="1.7728840665083659e-06"
+      >
+      </inertia>
+    </inertial>
+
+    <visual name="motor3_visual">
+      <origin xyz="0.0805 0.07 0.042"/>
+      <geometry>
+        <mesh
+          scale="0.001 0.001 0.001"
+          filename="./assets/nf1/meshes/motor_hyperlite_2204_2522.dae"
+        >
+        </mesh>
+      </geometry>
+      <material name="black">
+        <color rgba=".0 .0 .0 1"/>
+      </material>
+    </visual>
+
+    <velocity_decay/>
+    <self_collide>0</self_collide>
+  </link>
+
+  <joint name="motor3_joint" type="fixed">
+      <child link="motor3"></child>
+      <parent link="frame"></parent>
+  </joint>
+
+    
+
+  
+  <link name="prop0">
+    <inertial>
+      <origin xyz="-0.0805 -0.07 0.06" rpy="1.5708 -0 3.1415"/>
+      <mass value="0.00511"></mass>
+      <inertia
+        ixx="2.157959928944065e-06"
+        ixy="0"
+        ixz="0"
+        iyy="2.1559551412902913e-06"
+        iyz="0"
+        izz="4.242412526026635e-06"
+      >
+      </inertia>
+    </inertial>
+
+    <visual name="prop0_visual">
+      <origin xyz="-0.0805 -0.07 0.058" rpy="1.5708 -0 3.1415"/>
+      <geometry>
+        <mesh
+          scale="0.001 0.001 0.001"
+          filename="./assets/nf1/meshes/prop_gemfan_5152R_cw.dae"
+        >
+        </mesh>
+      </geometry>
+      <material name="blue">
+        <color rgba=".0 .0 .8 1"/>
+      </material>
+    </visual>
+
+    <velocity_decay/>
+    <self_collide>0</self_collide>
+  </link>
+
+  <joint name="prop0_joint" type='fixed'>
+    <child link="prop0"></child>
+    <parent link="motor0"></parent>
+    <axis xyz="0 0 1"/>
+    <limit
+      lower="-1e+16"
+      upper="1e+16"
+    />
+  </joint>
+  
+  <link name="prop1">
+    <inertial>
+      <origin xyz="0.0805 -0.07 0.06" rpy="1.57080 -0 3.1415"/>
+      <mass value="0.00511"></mass>
+      <inertia
+        ixx="2.157959928944065e-06"
+        ixy="0"
+        ixz="0"
+        iyy="2.1559551412902913e-06"
+        iyz="0"
+        izz="4.242412526026635e-06"
+      >
+      </inertia>
+    </inertial>
+
+    <visual name="prop1_visual">
+      <origin xyz="0.0805 -0.07 0.058" rpy="1.57080 -0 3.1415"/>
+      <geometry>
+        <mesh
+          scale="0.001 0.001 0.001"
+          filename="./assets/nf1/meshes/prop_gemfan_5152R_ccw.dae"
+        >
+        </mesh>
+      </geometry>
+      <material name="red">
+        <color rgba=".7 .0 .0 1"/>
+      </material>
+    </visual>
+    <velocity_decay/>
+    <self_collide>0</self_collide>
+  </link>
+  
+  <joint name="prop1_joint" type='fixed'>
+    <child link="prop1"></child>
+    <parent link="motor1"></parent>
+    <axis xyz="0 0 1"/>
+    <limit
+      lower="-1e+16"
+      upper="1e+16"
+    />
+  </joint>
+  
+  <link name="prop2">
+    <inertial>
+      <origin xyz="-0.0805 0.07 0.06" rpy="1.57080 -0 0"/>
+      <mass value="0.00511"></mass>
+      <inertia
+        ixx="2.157959928944065e-06"
+        ixy="0"
+        ixz="0"
+        iyy="2.1559551412902913e-06"
+        iyz="0"
+        izz="4.242412526026635e-06"
+      >
+      </inertia>
+    </inertial>
+
+    <visual name="prop2_visual">
+      <origin xyz="-0.0805 0.07 0.058" rpy="1.57080 -0 0"/>
+      <geometry>
+        <mesh
+          scale="0.001 0.001 0.001"
+          filename="./assets/nf1/meshes/prop_gemfan_5152R_ccw.dae"
+        >
+        </mesh>
+      </geometry>
+      <material name="red">
+        <color rgba=".7 .0 .0 1"/>
+      </material>
+    </visual>
+
+    <velocity_decay/>
+    <self_collide>0</self_collide>
+  </link>
+    
+  <joint name="prop2_joint" type='fixed'>
+    <child link="prop2"></child>
+    <parent link="motor2"></parent>
+    <axis xyz="0 0 1"/>
+    <limit
+      lower="-1e+16"
+      upper="1e+16"
+    />
+  </joint>
+  
+  <link name="prop3">
+    <inertial>
+      <origin xyz="0.0805 0.07 0.06" rpy="1.57080 -0 0"/>
+      <mass value="0.00511"></mass>
+      <inertia
+        ixx="2.157959928944065e-06"
+        ixy="0"
+        ixz="0"
+        iyy="2.1559551412902913e-06"
+        iyz="0"
+        izz="4.242412526026635e-06"
+      >
+      </inertia>
+    </inertial>
+
+    <visual name="prop3_visual">
+      <origin xyz="0.0805 0.07 0.058" rpy="1.57080 -0 0"/>
+      <geometry>
+        <mesh
+          scale="0.001 0.001 0.001"
+          filename="./assets/nf1/meshes/prop_gemfan_5152R_cw.dae"
+        >
+        </mesh>
+      </geometry>
+      <material name="red">
+        <color rgba=".7 .0 .0 1"/>
+      </material>
+    </visual>
+
+    <velocity_decay/>
+    <self_collide>0</self_collide>
+  </link>
+
+  <joint name="prop3_joint" type='fixed'>
+    <child link="prop3"></child>
+    <parent link="motor3"></parent>
+    <axis xyz="0 0 1"/>
+    <limit
+      lower="-1e+16"
+      upper="1e+16"
+    />
+  </joint>
+    
+  <link name='fc_stack'>
+    <inertial>
+      <origin xyz="0 0 0.0525"/>
+      <mass value="0.0305"></mass>
+      <inertia
+        ixx="4.414875e-06"
+        ixy="0"
+        ixz="0"
+        iyy="4.414875e-06"
+        iyz="0"
+        izz="6.5879999999999994e-06"
+      >
+      </inertia>
+    </inertial>
+
+    <visual name='fc_stack_visual'>
+      <origin xyz="0 0 0.042"/>
+      <geometry>
+        <mesh
+          scale="0.001 0.001 0.001"
+          filename="./assets/nf1/meshes/fc_stack_simple.dae"
+        >
+        </mesh>
+      </geometry>
+      <material name="black">
+        <color rgba=".0 .0 .0 1"/>
+      </material>
+    </visual>
+
+    <velocity_decay/>
+    <self_collide>0</self_collide>
+  </link>
+
+  <joint name="fc_stack_joint" type="fixed">
+      <child link="fc_stack"></child>
+      <parent link="frame"></parent>
+  </joint>
+</robot>

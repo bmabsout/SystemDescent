@@ -5,7 +5,6 @@ import numpy as np
 import Box2D
 from Box2D.b2 import (
     edgeShape,
-    vec2,
     circleShape,
     fixtureDef,
     polygonShape,
@@ -17,42 +16,14 @@ import gym
 from gym import spaces
 from gym.utils import colorize, seeding, EzPickle
 from gym.envs.registration import register
-from tensorflow import keras
-
+import envs.box2d_test.utils
 
 register(
-    id='ModeledCustomBipedalWalker-v0',
-    entry_point='envs.bipedal_walker.modeled_bipedal_walker:ModeledBipedalWalker',
+    id='CustomBipedalWalker-v0',
+    entry_point='envs.box2d_test.box2d_test:Box2dEnv',
     max_episode_steps=200,
 )
 
-# This is simple 4-joints walker robot environment.
-#
-# There are two versions:
-#
-# - Normal, with slightly uneven terrain.
-#
-# - Hardcore with ladders, stumps, pitfalls.
-#
-# Reward is given for moving forward, total 300+ points up to the far end. If the robot falls,
-# it gets -100. Applying motor torque costs a small amount of points, more optimal agent
-# will get better score.
-#
-# Heuristic is provided for testing, it's also useful to get demonstrations to
-# learn from. To run heuristic:
-#
-# python gym/envs/box2d/bipedal_walker.py
-#
-# State consists of hull angle speed, angular velocity, horizontal speed, vertical speed,
-# position of joints and joints angular speed, legs contact with ground, and 10 lidar
-# rangefinder measurements to help to deal with the hardcore version. There's no coordinates
-# in the state vector. Lidar is less useful in normal version, but it works.
-#
-# To solve the game you need to get 300 points in 1600 time steps.
-#
-# To solve hardcore version you need 300 points in 2000 time steps.
-#
-# Created by Oleg Klimov. Licensed on the same terms as the rest of OpenAI Gym.
 
 FPS = 50
 SCALE = 30.0  # affects how fast-paced the game is, forces should be adjusted as well
@@ -60,6 +31,7 @@ SCALE = 30.0  # affects how fast-paced the game is, forces should be adjusted as
 MOTORS_TORQUE = 80
 SPEED_HIP = 4
 SPEED_KNEE = 6
+LIDAR_RANGE = 160 / SCALE
 
 INITIAL_RANDOM = 5
 
@@ -124,17 +96,12 @@ class ContactDetector(contactListener):
                 leg.ground_contact = False
 
 
-def chunks(lst, n):
-    """Yield successive n-sized chunks from lst."""
-    for i in range(0, len(lst), n):
-        yield lst[i:i + n]
-
-class ModeledBipedalWalker(gym.Env, EzPickle):
+class BipedalWalker(gym.Env, EzPickle):
     metadata = {"render.modes": ["human", "rgb_array"], "video.frames_per_second": FPS}
 
     hardcore = False
 
-    def __init__(self, model_path):
+    def __init__(self):
         EzPickle.__init__(self)
         self.seed()
         self.viewer = None
@@ -142,7 +109,6 @@ class ModeledBipedalWalker(gym.Env, EzPickle):
         self.world = Box2D.b2World()
         self.terrain = None
         self.hull = None
-        self.state = None
 
         self.prev_shaping = None
 
@@ -157,18 +123,9 @@ class ModeledBipedalWalker(gym.Env, EzPickle):
             categoryBits=0x0001,
         )
 
-        self.model = keras.models.load_model(model_path)
-
-        def run_nn(obs, action):
-            latent_shape = self.model.input["latent"].shape
-            latent = np.array([[]]) if latent_shape[1] == 0 else np.random.normal(latent_shape[1:])
-            return self.model({"state": np.array([obs]), "action": np.array([action]), "latent": latent}, training=False)[0]
-
-        self.nn = run_nn
-
         self.reset()
 
-        high = np.array([10.0, 10.0, 10.0, 10.0, 3.0, 1.0, 1.0] * 5).astype(np.float32)
+        high = np.array([np.inf] * 24).astype(np.float32)
         self.action_space = spaces.Box(
             np.array([-1, -1, -1, -1]).astype(np.float32),
             np.array([1, 1, 1, 1]).astype(np.float32),
@@ -191,6 +148,7 @@ class ModeledBipedalWalker(gym.Env, EzPickle):
         for leg in self.legs:
             self.world.DestroyBody(leg)
         self.legs = []
+        self.joints = []
 
     def _generate_terrain(self, hardcore):
         GRASS, STUMP, STAIRS, PIT, _STATES_ = range(5)
@@ -342,8 +300,9 @@ class ModeledBipedalWalker(gym.Env, EzPickle):
         self.world.contactListener_bug_workaround = ContactDetector(self)
         self.world.contactListener = self.world.contactListener_bug_workaround
         self.game_over = False
+        self.prev_shaping = None
         self.scroll = 0.0
-        self.state = None
+        self.lidar_render = 0
 
         W = VIEWPORT_W / SCALE
         H = VIEWPORT_H / SCALE
@@ -353,67 +312,141 @@ class ModeledBipedalWalker(gym.Env, EzPickle):
 
         init_x = TERRAIN_STEP * TERRAIN_STARTPAD / 2
         init_y = TERRAIN_HEIGHT + 2 * LEG_H
-        self.hull = self.world.CreateStaticBody(
+        self.hull = self.world.CreateDynamicBody(
             position=(init_x, init_y), fixtures=HULL_FD
         )
-        self.hull.color1 = (0.9, 0.4, 0.5)
-        self.hull.color2 = (0.5, 0.3, 0.3)
+        self.hull.color1 = (0.5, 0.4, 0.9)
+        self.hull.color2 = (0.3, 0.3, 0.5)
+        self.hull.ApplyForceToCenter(
+            (self.np_random.uniform(-INITIAL_RANDOM, INITIAL_RANDOM), 0), True
+        )
 
         self.legs = []
+        self.joints = []
         for i in [-1, +1]:
-            leg = self.world.CreateStaticBody(
+            leg = self.world.CreateDynamicBody(
                 position=(init_x, init_y - LEG_H / 2 - LEG_DOWN),
                 angle=(i * 0.05),
                 fixtures=LEG_FD,
             )
             leg.color1 = (0.6 - i / 10.0, 0.3 - i / 10.0, 0.5 - i / 10.0)
             leg.color2 = (0.4 - i / 10.0, 0.2 - i / 10.0, 0.3 - i / 10.0)
-
+            rjd = revoluteJointDef(
+                bodyA=self.hull,
+                bodyB=leg,
+                localAnchorA=(0, LEG_DOWN),
+                localAnchorB=(0, LEG_H / 2),
+                enableMotor=True,
+                enableLimit=True,
+                maxMotorTorque=MOTORS_TORQUE,
+                motorSpeed=i,
+                lowerAngle=-0.8,
+                upperAngle=1.1,
+            )
             self.legs.append(leg)
+            self.joints.append(self.world.CreateJoint(rjd))
 
-            lower = self.world.CreateStaticBody(
+            lower = self.world.CreateDynamicBody(
                 position=(init_x, init_y - LEG_H * 3 / 2 - LEG_DOWN),
                 angle=(i * 0.05),
                 fixtures=LOWER_FD,
             )
             lower.color1 = (0.6 - i / 10.0, 0.3 - i / 10.0, 0.5 - i / 10.0)
             lower.color2 = (0.4 - i / 10.0, 0.2 - i / 10.0, 0.3 - i / 10.0)
+            rjd = revoluteJointDef(
+                bodyA=leg,
+                bodyB=lower,
+                localAnchorA=(0, -LEG_H / 2),
+                localAnchorB=(0, LEG_H / 2),
+                enableMotor=True,
+                enableLimit=True,
+                maxMotorTorque=MOTORS_TORQUE,
+                motorSpeed=1,
+                lowerAngle=-1.6,
+                upperAngle=-0.1,
+            )
             lower.ground_contact = False
             self.legs.append(lower)
+            self.joints.append(self.world.CreateJoint(rjd))
 
         self.drawlist = self.terrain + self.legs + [self.hull]
+
+        class LidarCallback(Box2D.b2.rayCastCallback):
+            def ReportFixture(self, fixture, point, normal, fraction):
+                if (fixture.filterData.categoryBits & 1) == 0:
+                    return -1
+                self.p2 = point
+                self.fraction = fraction
+                return fraction
+
+        self.lidar = [LidarCallback() for _ in range(10)]
 
         return self.step(np.array([0, 0, 0, 0]))[0]
 
     def step(self, action):
-        # self.hull.ApplyForceToCenter((0, 20), True) -- Uncomment this to receive a bit of stability help
         self.world.Step(1.0 / FPS, 6 * 30, 2 * 30)
 
-        bodies = [ self.hull ] + self.legs
-        if self.state is None:
-            body_states = map(lambda body: (
-                body.position.x,
-                body.position.y,
-                body.linearVelocity.x,
-                body.linearVelocity.y,
-                body.angularVelocity,
-                math.sin(body.angle),
-                math.cos(body.angle)), bodies)
-            self.state = np.array([item for sublist in body_states for item in sublist])
-        
-        self.state = self.nn(self.state, action)
+        pos = self.hull.position
+        vel = self.hull.linearVelocity
 
-        for body, state in zip(bodies, chunks(self.state, 7)):
-            body.position = vec2(float(state[0]), float(state[1]))
-            # body.linearVelocity = vec2(float(state[2]), float(state[3]))
-            # body.angularVelocity = float(state[4])
-            body.angle = math.atan2(state[5], state[6])
-        # self.hull.position.x = float(self.state[0])
-        # self.hull.position.y = float(self.state[1])
+        self.legs[0].angle=0
+        self.legs[0].x = 0
 
-        self.scroll = self.hull.position.x - VIEWPORT_W / SCALE / 5
+        for i in range(10):
+            self.lidar[i].fraction = 1.0
+            self.lidar[i].p1 = pos
+            self.lidar[i].p2 = (
+                pos[0] + math.sin(1.5 * i / 10.0) * LIDAR_RANGE,
+                pos[1] - math.cos(1.5 * i / 10.0) * LIDAR_RANGE,
+            )
+            self.world.RayCast(self.lidar[i], self.lidar[i].p1, self.lidar[i].p2)
 
-        return self.state, 0, False, {}
+        state = [
+            self.hull.angle,  # Normal angles up to 0.5 here, but sure more is possible.
+            2.0 * self.hull.angularVelocity / FPS,
+            0.3 * vel.x * (VIEWPORT_W / SCALE) / FPS,  # Normalized to get -1..1 range
+            0.3 * vel.y * (VIEWPORT_H / SCALE) / FPS,
+            self.joints[
+                0
+            ].angle,  # This will give 1.1 on high up, but it's still OK (and there should be spikes on hiting the ground, that's normal too)
+            self.joints[0].speed / SPEED_HIP,
+            self.joints[1].angle + 1.0,
+            self.joints[1].speed / SPEED_KNEE,
+            1.0 if self.legs[1].ground_contact else 0.0,
+            self.joints[2].angle,
+            self.joints[2].speed / SPEED_HIP,
+            self.joints[3].angle + 1.0,
+            self.joints[3].speed / SPEED_KNEE,
+            1.0 if self.legs[3].ground_contact else 0.0,
+        ]
+        state += [l.fraction for l in self.lidar]
+        assert len(state) == 24
+
+        self.scroll = pos.x - VIEWPORT_W / SCALE / 5
+
+        shaping = (
+            130 * pos[0] / SCALE
+        )  # moving forward is a way to receive reward (normalized to get 300 on completion)
+        shaping -= 5.0 * abs(
+            state[0]
+        )  # keep head straight, other than that and falling, any behavior is unpunished
+
+        reward = 0
+        if self.prev_shaping is not None:
+            reward = shaping - self.prev_shaping
+        self.prev_shaping = shaping
+
+        for a in action:
+            reward -= 0.00035 * MOTORS_TORQUE * np.clip(np.abs(a), 0, 1)
+            # normalized to about -50.0 using heuristic, more optimal agent should spend less
+
+        done = False
+        if self.game_over or pos[0] < 0:
+            reward = -100
+            done = True
+        if pos[0] > (TERRAIN_LENGTH - TERRAIN_GRASS) * TERRAIN_STEP:
+            done = True
+        return np.array(state, dtype=np.float32), reward, done, {}
 
     def render(self, mode="human"):
         from gym.envs.classic_control import rendering
@@ -431,7 +464,7 @@ class ModeledBipedalWalker(gym.Env, EzPickle):
                 (self.scroll + VIEWPORT_W / SCALE, VIEWPORT_H / SCALE),
                 (self.scroll, VIEWPORT_H / SCALE),
             ],
-            color=(1.0, 0.9, 1.0),
+            color=(0.9, 0.9, 1.0),
         )
         for poly, x1, x2 in self.cloud_poly:
             if x2 < self.scroll / 2:
@@ -447,6 +480,16 @@ class ModeledBipedalWalker(gym.Env, EzPickle):
             if poly[0][0] > self.scroll + VIEWPORT_W / SCALE:
                 continue
             self.viewer.draw_polygon(poly, color=color)
+
+        self.lidar_render = (self.lidar_render + 1) % 100
+        i = self.lidar_render
+        if i < 2 * len(self.lidar):
+            l = (
+                self.lidar[i]
+                if i < len(self.lidar)
+                else self.lidar[len(self.lidar) - i - 1]
+            )
+            self.viewer.draw_polyline([l.p1, l.p2], color=(1, 0, 0), linewidth=1)
 
         for obj in self.drawlist:
             for f in obj.fixtures:
@@ -487,14 +530,13 @@ class ModeledBipedalWalker(gym.Env, EzPickle):
             self.viewer = None
 
 
-class ModeledBipedalWalkerHardcore(ModeledBipedalWalker):
+class BipedalWalkerHardcore(BipedalWalker):
     hardcore = True
 
 
 if __name__ == "__main__":
     # Heurisic: suboptimal, have no notion of balance.
-    # import src.utils as utils
-    env = ModeledBipedalWalker(utils.latest_model())
+    env = BipedalWalker()
     env.reset()
     steps = 0
     total_reward = 0
@@ -509,15 +551,14 @@ if __name__ == "__main__":
     while True:
         s, r, done, info = env.step(a)
         total_reward += r
-        if steps % 5 == 0 or done:
+        if steps % 20 == 0 or done:
             print("\naction " + str(["{:+0.2f}".format(x) for x in a]))
             print("step {} total_reward {:+0.2f}".format(steps, total_reward))
             print("hull " + str(["{:+0.2f}".format(x) for x in s[0:4]]))
-            print("leg0 " + str(["{:+0.2f}".format(x) for x in s[4:8]]))
-            print("leg1 " + str(["{:+0.2f}".format(x) for x in s[8:12]]))
-            print("lower0 " + str(["{:+0.2f}".format(x) for x in s[12:16]]))
-            print("lower1 " + str(["{:+0.2f}".format(x) for x in s[16:20]]))
+            print("leg0 " + str(["{:+0.2f}".format(x) for x in s[4:9]]))
+            print("leg1 " + str(["{:+0.2f}".format(x) for x in s[9:14]]))
         steps += 1
+
         contact0 = s[8]
         contact1 = s[13]
         moving_s_base = 4 + 5 * moving_leg
