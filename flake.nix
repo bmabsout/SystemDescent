@@ -61,7 +61,8 @@
       in {
         devShell = pkgs.mkShell {
           buildInputs=[
-            vscodium-with-extensions
+            # vscodium-with-extensions
+            pkgs.vscode-fhs
             pkgs.python39Packages.pip
             pkgs.python39Packages.virtualenv
             python-with-deps

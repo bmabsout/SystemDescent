@@ -1,4 +1,3 @@
-from collections import namedtuple
 import tensorflow as tf
 import numpy as np
 from typing import NamedTuple, Union, Dict, Tuple
@@ -11,7 +10,7 @@ def geo(l, slack=1e-15,**kwargs):
     return tf.reduce_prod(tf.where(slacked < 1e-30, 0., slacked)**(1.0/n), **kwargs) - slack
 
 @tf.function
-def p_mean(l, p, slack=1e-7, **kwargs):
+def p_mean(l, p, slack=1e-9, **kwargs):
     """
     generalized mean, p = -1 is the harmonic mean, p = 1 is the regular mean, p=inf is the max function ...
     https://www.wolframcloud.com/obj/26a59837-536e-4e9e-8ed1-b1f7e6b58377
@@ -46,15 +45,15 @@ def smooth_constraint(x, from_low, from_high, to_low=0.03, to_high=0.97, starts_
     return scale(tf.sigmoid(transform(x, from_low, from_high, sigmoid_low, sigmoid_high)))
 
 
+DFL = Union['DFL', tf.Tensor]
+# currently specialized to tf tensors, can be made generic if https://bugs.python.org/issue43923 is solved
 
 class Constraints(NamedTuple):
     '''DFL stands for Differentiable fuzzy logic
-    it is a recursive structure where there are tuples of dictionaries, the first element is the argument to the generalized mean, the second is the definition of the constraints.
-    '''
-    operator: object
-    constraints: Dict[str, object] # object should be of type DFL
-
-DFL = Union[Constraints, object]
+        it is a recursive structure where there are constraints of constraints, the operator is the argument to the generalized mean, the second is the definition of the constraints.
+        '''
+    operator: tf.Tensor
+    constraints: Dict[str, DFL]
 
 
 # @tf.function
