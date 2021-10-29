@@ -9,6 +9,7 @@ from sd.rl import utils
 
 # from sd.envs.drone.assets import load_assets
 parser = Trainer.get_argument()
+parser.set_defaults(logdir="res")
 parser = SAC.get_argument(parser)
 args = parser.parse_args()
 

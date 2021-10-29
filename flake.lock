@@ -30,18 +30,6 @@
         "type": "github"
       }
     },
-    "gym-pybullet-drones": {
-      "flake": false,
-      "locked": {
-        "narHash": "sha256-AhGDfD0l2ByfhKBSHPUqCgvJl6l2DfmllOuPC/H3AhY=",
-        "path": "./gym-pybullet-drones",
-        "type": "path"
-      },
-      "original": {
-        "path": "./gym-pybullet-drones",
-        "type": "path"
-      }
-    },
     "mach-nix": {
       "inputs": {
         "flake-utils": "flake-utils_2",
@@ -111,26 +99,8 @@
     "root": {
       "inputs": {
         "flake-utils": "flake-utils",
-        "gym-pybullet-drones": "gym-pybullet-drones",
         "mach-nix": "mach-nix",
-        "nixpkgs": "nixpkgs_2",
-        "tf2rl": "tf2rl"
-      }
-    },
-    "tf2rl": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1630457806,
-        "narHash": "sha256-Ugk8lenTrTKd0W2gdAvl1Hq9iyPLhxB6JiddpWVhI9k=",
-        "owner": "keiohta",
-        "repo": "tf2rl",
-        "rev": "d1f67c540ddad3dcfbb357f1fe3f00d8a2a911c6",
-        "type": "github"
-      },
-      "original": {
-        "owner": "keiohta",
-        "repo": "tf2rl",
-        "type": "github"
+        "nixpkgs": "nixpkgs_2"
       }
     }
   },

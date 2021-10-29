@@ -6,14 +6,6 @@
     flake-utils.url = "github:numtide/flake-utils";
     nixpkgs.url = "nixpkgs/6120ac5cd201f6cb593d1b80e861be0342495be9";
     mach-nix.url = github:DavHau/mach-nix;
-    # gym-pybullet-drones.url = "github:utiasDSL/gym-pybullet-drones";
-    gym-pybullet-drones.url = "path:./gym-pybullet-drones";
-    gym-pybullet-drones.flake = false;
-    
-    tf2rl.url = "github:keiohta/tf2rl";
-    tf2rl.flake = false;
-    # sd.url = "path:./.";
-    # sd.flake = false;
   };
 
   outputs = inputs:
@@ -24,9 +16,9 @@
                   
           extensions = (with pkgs.vscode-extensions; [
             ms-python.python
+            ms-python.vscode-pylance
             ms-toolsai.jupyter
             jnoortheen.nix-ide
-            
           ]);
 
           mach-nix-utils = import inputs.mach-nix {
@@ -38,7 +30,7 @@
 
           vscodium-with-extensions = pkgs.vscode-with-extensions.override {
             vscode = pkgs.vscodium.fhs;
-            vscodeExtensions = extensions;
+            # vscodeExtensions = extensions;
           };
 
           python-with-deps = mach-nix-utils.mkPython {
@@ -46,28 +38,25 @@
             providers.pyglet="nixpkgs";
             providers.pygame="nixpkgs";
             providers.pybullet="nixpkgs";
-            providers.tkinter="nixpkgs";
-            providers.matplotlib="nixpkgs";
+            # providers.matplotlib="nixpkgs";
             #providers.tensorflow="nixpkgs";
 
-            requirements= builtins.readFile ./requirements.txt;
-            packagesExtra=[
-              # (mach-nix-utils.buildPythonPackage {
-              #   src = gym-pybullet-drones;
-              # })
-              # ./.
-              # (mach-nix-utils.buildPythonPackage {
-              #   src = tf2rl;
-              #   requirements=''
-              #   '';
-              # })
-              # (mach-nix-utils.buildPythonPackage {
-              #   src = sd;
-              # })
-            ];
-            # packagesExtra = [
-      	     #  /home/bmabsout/Documents/gymfc
-            # ];
+            requirements=''
+              numpy
+              tensorflow
+              scipy
+              gym
+              tqdm
+              mypy
+              matplotlib
+              box2d-py
+              noise
+              pygame
+              pybullet
+              tf2rl
+              pylint
+              #GitPython>=3.1.17
+            '';
           };
       in {
         devShell = pkgs.mkShell {
@@ -77,7 +66,6 @@
             pkgs.python39Packages.virtualenv
             python-with-deps
           ];
-
         };
       }
     );

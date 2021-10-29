@@ -1,7 +1,7 @@
 from gym.envs.registration import register
 register(
     id='ModeledPendulum-v0',
-    entry_point='envs.ModeledPendulumDir.ModeledPendulum:ModeledPendulumEnv',
+    entry_point='sd.envs.ModeledPendulumDir.ModeledPendulum:ModeledPendulumEnv',
     max_episode_steps=200,
 )
 
@@ -37,6 +37,6 @@ register(
 
 register(
     id='ModeledCustomBipedalWalker-v0',
-    entry_point='envs.bipedal_walker.modeled_bipedal_walker:ModeledBipedalWalker',
+    entry_point='sd.envs.bipedal_walker.modeled_bipedal_walker:ModeledBipedalWalker',
     max_episode_steps=200,
 )

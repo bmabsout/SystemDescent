@@ -1,15 +1,11 @@
-import envs.ModeledPendulumDir.ModeledPendulum
-import envs.Acrobot_continuous.ModeledAcrobot_continuous
-import envs.bipedal_walker.modeled_bipedal_walker
-import envs.bipedal_walker.bipedal_walker
-import envs.Acrobot_continuous.Acrobot_continuous
+import sd.envs
 import gym
 import numpy as np
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
 import matplotlib.pyplot as plt
-import utils 
+from . import utils 
 import argparse
 
 def plot_lyapunov(lyapunov, actor, dynamics, set_point):
@@ -25,16 +21,15 @@ def plot_lyapunov(lyapunov, actor, dynamics, set_point):
     print(inputs.shape)
     print(set_points.shape)
     z = lyapunov({"state": inputs, "setpoint": set_points}, training=False)
-    acts = saved_actor({"state":inputs, "setpoint": set_points}, training=False)
-    print(saved_actor([inputs, set_points]).shape)
-    after = dynamics({"state": inputs, "action": acts}, training=False)
+    acts = actor({"state":inputs, "setpoint": set_points}, training=False)
+    print(actor([inputs, set_points]).shape)
+    after = dynamics({"state": inputs, "action": acts, "latent": np.random.normal(size=(inputs.shape[0],)+dynamics.input["latent"].shape[1:])}, training=False)
     next_z = lyapunov({"state": after, "setpoint": set_points}, training=False)
     after = after.numpy().reshape(pts,pts,3)
     z = z.numpy().reshape(pts,pts, 1)
     next_z = next_z.numpy().reshape(pts,pts,1)
     acts = acts.numpy().reshape(pts,pts,1)
     # actor = lambda x, **kwargs: np.array([0.0])
-    actor = saved_actor
     # res = dynamics([states,acts], training=False)
 
     # z = lyapunov([states, set_points], training=False)
@@ -42,12 +37,12 @@ def plot_lyapunov(lyapunov, actor, dynamics, set_point):
     # plt.plot(x[:,1], lyapunov([res, set_points]) - y)
     plt.pcolormesh(thetav, theta_dotv, z.T[0][:-1, :-1], vmin=0.0, vmax=1.0)
     plt.colorbar()
-    plt.savefig(checkpoint_path + "/lyapunov_tf/lyapunov.png")
+    # plt.savefig(checkpoint_path + "/lyapunov_tf/lyapunov.png")
 
 
     # plt.pcolormesh(thetav, theta_dotv, acts.T[0][:-1, :-1])
     # plt.colorbar()
-    # plt.show()
+    plt.show()
 
 
     # plt.pcolormesh(thetav, theta_dotv, (next_z - z).T[0][:-1,:-1])
@@ -86,13 +81,15 @@ if __name__ == "__main__":
         except:
             print(f"there is no actor trained for the model {checkpoint_path}")
 
+    set_point_angle = 0.0
+    set_point = np.array([np.cos(set_point_angle),np.sin(set_point_angle),0.0])
+
     try:
         lyapunov = keras.models.load_model(checkpoint_path + "/lyapunov_tf")
+        plot_lyapunov(lyapunov, actor, dynamics, set_point)
     except:
         lyapunov = None
 
-    set_point_angle = 0.0
-    set_point = np.array([np.cos(set_point_angle),np.sin(set_point_angle),0.0])
 
 
     orig_env = gym.make(env_name)

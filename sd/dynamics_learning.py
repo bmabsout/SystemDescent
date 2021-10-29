@@ -8,13 +8,13 @@ import time
 from tensorflow import keras
 from tensorflow.keras import layers
 import pathlib
-import utils
+from . import utils
+from sd import dfl
 from typing import Union
 import sd.envs
 
 def random_policy(obs, action_space):
     return action_space.sample()
-
 
 def generator_def(env: gym.Env, hidden_sizes: list[int], latent_size:int):
     obs_space = env.observation_space
@@ -42,10 +42,7 @@ def generator_def(env: gym.Env, hidden_sizes: list[int], latent_size:int):
     
 
     dense = layers.Dense(state_size)(dense)
-    if(np.any(np.isinf(high) | np.isinf(low))):
-        outputs = dense
-    else:
-        outputs = layers.Activation('sigmoid')(dense)*(high-low) + low
+    outputs = layers.Activation("sigmoid")(dense)*(obs_high-obs_low)+obs_low
     model = keras.Model(
         inputs={
             "state": state_input,
@@ -64,10 +61,10 @@ def generator_2d_batch(generator, batch):
 
     @tf.function
     def flatten_batch(b):
-        return tf.reshape(b, shape=tf.concat([[-1], b.shape[2:]], axis=0))
+        return tf.reshape(b, shape=tf.concat([[-1], b.shape[2:]], 0))
 
     generated = generator(utils.map_dict(flatten_batch, batch))
-    unflattened = tf.concat([batch_shape, tf.shape(generated)[1:]], axis=0)
+    unflattened = tf.concat([batch_shape, tf.shape(generated)[1:]], 0)
     return tf.reshape(generated, shape=unflattened)
 
 
@@ -137,8 +134,8 @@ def generate_fakes(generator, batch):
 @tf.function
 def direct_dfls(generator, batch):
     abs_diff = tf.abs(generate_fakes(generator, batch)["next_state"]-batch["next_state"])
-    return utils.DFL(0.0, {
-        "distance": utils.p_mean(1.0/(1.0 + abs_diff), 1.0),
+    return dfl.Constraints(0.0, {
+        "distance": dfl.p_mean(1.0/(1.0 + abs_diff), 1.0),
         # "reg": 1 - tf.tanh(tf.reduce_mean(generator.losses)*10.0)
     })
 
@@ -147,23 +144,23 @@ def direct_dfls(generator, batch):
 def gan_dfls(generator, discriminator, real_batch):
     fakes = generate_fakes(generator, real_batch)
     fakes2 = generate_fakes(generator, real_batch)
-    fooled = utils.p_mean(discriminator(fakes), 2.0)
-    fooled2 = utils.p_mean(discriminator(fakes2), 2.0)
+    fooled = dfl.p_mean(discriminator(fakes), 2.0)
+    fooled2 = dfl.p_mean(discriminator(fakes2), 2.0)
     discriminator_regularizer = 1 - tf.tanh(tf.reduce_mean(discriminator.losses)*10.0)
     generator_regularizer = 1 - tf.tanh(tf.reduce_mean(generator.losses)*10.0)
-    real_fake_dfl = utils.DFL(0.0, {
-        "real": utils.p_mean(discriminator(real_batch), 0.0),
-        "fake": utils.p_mean(1 - discriminator(fakes), 0.0)
+    real_fake_dfl = dfl.Constraints(0.0, {
+        "real": dfl.p_mean(discriminator(real_batch), 0.0),
+        "fake": dfl.p_mean(1 - discriminator(fakes), 0.0)
     })
-    fooled2_normalized = utils.smooth_constraint(fooled2, 0.0, 0.5, 0.0, 0.97, starts_linear=True)
-    generator_dfl = utils.DFL(2.0, {
-#         "fooled": utils.p_mean(discriminator(fakes2),2.0)
+    fooled2_normalized = dfl.smooth_constraint(fooled2, 0.0, 0.5, 0.0, 0.97, starts_linear=True)
+    generator_dfl = dfl.Constraints(2.0, {
+#         "fooled": dfl.p_mean(discriminator(fakes2),2.0)
         "fooled": fooled2_normalized,
         # "direct": direct_dfls(generator, real_batch)
-        # "reg": tf.where(tf.stop_gradient(utils.dfl_scalar(real_fake_dfl)) < 0.1, generator_regularizer, 1.0)
+        # "reg": tf.where(tf.stop_gradient(dfl.dfl_scalar(real_fake_dfl)) < 0.1, generator_regularizer, 1.0)
     })
     generator_badness = 1.0 - tf.minimum(tf.stop_gradient(fooled2)*2, 1.0)
-    discriminator_dfl = utils.DFL(0.0, {
+    discriminator_dfl = dfl.Constraints(0.0, {
         "rf": real_fake_dfl,
         "reg": discriminator_regularizer*generator_badness + (1.0 - generator_badness)
         # linear interpolation between the regularizer and 1.0 decided by the amount fooled
@@ -179,7 +176,7 @@ def train_direct_step(generator, learning_rate):
         for i in range(1):
             with tf.GradientTape() as gen_tape:
                 generator_dfl = direct_dfls(generator, batch)
-                generator_scalar = utils.dfl_scalar(generator_dfl)
+                generator_scalar = dfl.dfl_scalar(generator_dfl)
                 generator_loss = 1-generator_scalar
 
             # selected_sub_weights = map(lambda matrix: , generator.trainable_weights)
@@ -203,9 +200,9 @@ def train_GAN_step(generator, discriminator, learning_rate):
     def gradient_step(batch):
         with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
             generator_dfl, discriminator_dfl = gan_dfls(generator, discriminator, batch)
-            generator_scalar = utils.dfl_scalar(generator_dfl)
+            generator_scalar = dfl.dfl_scalar(generator_dfl)
             generator_loss = 1-generator_scalar
-            discriminator_scalar = utils.dfl_scalar(discriminator_dfl)
+            discriminator_scalar = dfl.dfl_scalar(discriminator_dfl)
             discriminator_loss = 1-discriminator_scalar
 
         disc_grads = disc_tape.gradient(discriminator_loss, discriminator.trainable_weights)
@@ -222,9 +219,9 @@ def train_GAN_step(generator, discriminator, learning_rate):
     return train_and_show
 
 
-def show_info(scalar_dfl):
-    scalar, dfl = scalar_dfl
-    return f"{scalar:.2e}|{utils.format_dfl(dfl)}"
+def show_info(scalar_constraints):
+    scalar, constraints = scalar_constraints
+    return f"{scalar:.2e}|{dfl.format_dfl(constraints)}"
 
 
 def system_identify(env_name: str,
@@ -239,7 +236,7 @@ def system_identify(env_name: str,
                     save_freq: int,
                     learning_rate: float,
                     latent_size: int,
-                    direct: bool,
+                    gan: bool,
                     load_saved: Union[str, None]):
     env = gym.make(env_name)
     if load_saved:
@@ -260,17 +257,17 @@ def system_identify(env_name: str,
     validation_data = dataset.take(num_validation_batches).cache()
     pathlib.Path("caches").mkdir(parents=True, exist_ok=True)
     data = dataset.take(num_batches).apply(tf.data.experimental.assert_cardinality(num_batches)).cache(f"caches/{env_name}_nb:{num_batches}_e:{episode_size}_b:{batch_size}")
-    if direct:
-        trainer = train_direct_step(generator, learning_rate)
-    else:
+    if gan:
         trainer = train_GAN_step(generator, discriminator, learning_rate)
+    else:
+        trainer = train_direct_step(generator, learning_rate)
 
     def save_checkpoint(epoch):
         for batch in validation_data:
             print(show_info(direct_dfls(generator, batch)))
         utils.save_checkpoint(filepath, generator, epoch)
 
-    utils.train_loop([data]*epochs, trainer, freq_callback=(save_freq, save_checkpoint))
+    utils.train_loop([data]*epochs, trainer, every_n_seconds={"freq": save_freq, "callback": save_checkpoint})
 
 
 if __name__ == "__main__":
@@ -283,9 +280,9 @@ if __name__ == "__main__":
     parser.add_argument('--num_states', type=int, default=1)
     parser.add_argument('--num_batches', type=int, default=1000)
     parser.add_argument('--num_validation_batches', type=int, default=20)
-    parser.add_argument('--latent_size', type=int, default=1)
+    parser.add_argument('--latent_size', type=int, default=0)
     parser.add_argument('--epochs', type=int, default=200)
-    parser.add_argument('--direct', action='store_true')
+    parser.add_argument('--gan', action='store_true')
     parser.add_argument('--load_saved', type=str, default=None)
     parser.add_argument('--generator_hidden_sizes', nargs="+", type=int, default=[100, 100, 100])
     parser.add_argument('--discriminator_hidden_sizes', nargs="+", type=int, default=[300, 300])

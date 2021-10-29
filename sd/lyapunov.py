@@ -13,7 +13,8 @@ from functools import reduce
 from pathlib import Path
 import time
 import argparse
-from utils import *
+from .dfl import *
+from . import utils
 from tqdm import tqdm
 import pprint
 
@@ -62,6 +63,17 @@ def save_model(model, name):
 	print(str(path))
 	model.save(str(path))
 
+
+pi = tf.constant(math.pi)
+
+@tf.function
+def angular_similarity(v1, v2):
+    v1_angle = tf.math.atan2(v1[0], v1[1])
+    v2_angle = tf.math.atan2(v2[0], v2[1])
+    d = tf.abs(v1_angle - v2_angle) % (pi*2.0)
+    return 1.0 - transform(pi - tf.abs(tf.abs(v1_angle - v2_angle) - pi), 0.0, pi, 0.0, 1.0)
+
+
 def train(batches, dynamics_model, actor, V, state_shape, args):
 	optimizer=keras.optimizers.Adam(lr=args.lr)
 	@tf.function
@@ -70,9 +82,11 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 		states = tf.TensorArray(tf.float32, size=repeat)
 		current_states = initial_states
 		for i in range(repeat):
+			latent_shape = tuple(current_states.shape[0:1]) + tuple(dynamics_model.input["latent"].shape[1:])
 			current_states = dynamics_model(
 				{ "state": current_states
 				, "action": actor({"state":current_states, "setpoint":set_points})
+				, "latent": tf.random.normal(latent_shape)
 				}, training=True)
 			states = states.write(i, current_states)
 		return current_states, tf.transpose(states.stack(), [1,0,2])
@@ -103,11 +117,11 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 		decreases_everywhere = smooth_constraint(diff, 0.0, line)
 		proof_of_performance = tf.squeeze(p_mean(decreases_everywhere, -1.0, slack=1e-13))
 
-		dfl = DFL(-1.0,
+		dfl = Constraints(-1.0,
 			{
 			"close_angles": p_mean(as_all, 3.0),
 			# "close_angle": smooth_constraint(close_angle,0.65, 0.73),
-			# "lyapunov": DFL(0.0, {
+			# "lyapunov": Constraints(0.0, {
 			# 	"proof_of_performance": proof_of_performance,
 			# 	# "avg_large": tf.minimum(p_mean(Vx, -2.0)*1.5, 1.0),
 			# 	# "zero": zero,
@@ -140,25 +154,21 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 
 		return scalar, dfl
 
-	def save_models(epoch, time_diff):
-		global seconds_since_last_save
-		seconds_since_last_save += time_diff
-		if(seconds_since_last_save > 15):
-			save_model(actor, "actor_tf")
-			save_model(lyapunov_model, "lyapunov_tf")
-			seconds_since_last_save = 0.0
+	def save_models(epoch):
+		save_model(actor, "actor_tf")
+		save_model(lyapunov_model, "lyapunov_tf")
 
 	def train_and_show(batch):
 		scalar, metrics = train_step(batch)
 		return f"Scalar: {scalar:.2e}|||{format_dfl(metrics)}"
 
-	train_loop([batches]*args.epochs, train_and_show, save_models)
+	utils.train_loop([batches]*args.epochs,
+		train_step=train_and_show,
+		every_n_seconds={"freq": 15, "callback": save_models})
 	
-seconds_since_last_save = 0.
-
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
-	parser.add_argument("--ckpt_path",type=str,default=latest_model())
+	parser.add_argument("--ckpt_path",type=str,default=utils.latest_model())
 	parser.add_argument("--num_batches",type=int,default=200)
 	parser.add_argument("--epochs",type=int,default=100)
 	parser.add_argument("--batch_size", type=int,default=64)
@@ -166,7 +176,7 @@ if __name__ == "__main__":
 	parser.add_argument("--load_saved", action="store_true")
 	args = parser.parse_args()
 
-	env_name = extract_env_name(args.ckpt_path)
+	env_name = utils.extract_env_name(args.ckpt_path)
 	env = gym.make(env_name)
 
 	action_shape = env.action_space.shape
