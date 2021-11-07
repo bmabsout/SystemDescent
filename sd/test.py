@@ -53,6 +53,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', type=str, help="model_path", default=None)
     parser.add_argument('--random_actor', action="store_true")
+    parser.add_argument('--low_actor', action="store_true")
     parser.add_argument('--seed', type=int, default=np.random.randint(100000))
     args = parser.parse_args()
 
@@ -67,13 +68,14 @@ if __name__ == "__main__":
     env_name = utils.extract_env_name(checkpoint_path)
 
     env = gym.make('Modeled' + env_name,
-        model_path=checkpoint_path)
-
+        model_path=checkpoint_path, test=True, gui=True)
 
     dynamics = keras.models.load_model(checkpoint_path)
 
     if args.random_actor:
         actor = lambda x,**ignored: env.action_space.sample()
+    elif args.low_actor:
+        actor = lambda x,**ignored: env.action_space.low
     else:
         try:
             actor = keras.models.load_model(checkpoint_path + "/actor_tf")
@@ -91,7 +93,6 @@ if __name__ == "__main__":
         lyapunov = None
 
 
-
     orig_env = gym.make(env_name)
     seed = args.seed
     # seed = 632732 #bottom almost
@@ -107,15 +108,16 @@ if __name__ == "__main__":
     def feed_obs(obs):
         return {"state": np.array([obs]), "setpoint": np.array([set_point])}
 
-    for i in range(200):
+    for i in range(20000):
         # random_act = np.random.uniform(2,size=(1,))
         act = actor(feed_obs(env_obs), training=False)
-        print(env_obs)
+        # print(orig_env_obs)
+        # print(env_obs)
         if lyapunov:
             print("lyapunov", lyapunov(feed_obs(env_obs)))
         orig_act = actor(feed_obs(orig_env_obs), training=False)
         env_obs, env_reward, env_done, env_info = env.step(act)
         orig_env_obs, orig_env_reward, orig_env_done, orig_env_info = orig_env.step(orig_act)
-        print("error", np.linalg.norm(env_obs-orig_env_obs))
+        print("error", np.mean(np.abs(env_obs-orig_env_obs)))
         env.render()
-        orig_env.render()
+        # orig_env.render()

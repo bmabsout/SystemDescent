@@ -1,3 +1,4 @@
+from sd.envs import modelable_env
 import tensorflow as tf
 import gym
 import os.path as osp
@@ -11,27 +12,24 @@ import pathlib
 from . import utils
 from sd import dfl
 from typing import Union
-import sd.envs
+import sd.envs # brings envs in scope
+from sd.envs.modelable_env import ModelableEnv, ModelableWrapper
 
 def random_policy(obs, action_space):
     return action_space.sample()
 
-def generator_def(env: gym.Env, hidden_sizes: list[int], latent_size:int):
+def generator_def(env: ModelableEnv, hidden_sizes: list[int], latent_size:int):
     obs_space = env.observation_space
     act_space = env.action_space
     print(act_space, obs_space)
     if(not (isinstance(act_space, gym.spaces.Box) and isinstance(obs_space, gym.spaces.Box))):
         raise NotImplementedError
-    obs_low = np.array(obs_space.low)
-    obs_high = np.array(obs_space.high)
-    act_low = np.array(act_space.low)
-    act_high = np.array(act_space.high)
 
     state_size = obs_space.shape[0]
     state_input = keras.Input(shape=(obs_space.shape[0],))
-    normalized_state = (state_input - obs_low)/(obs_high - obs_low)
+    normalized_state = (state_input - obs_space.low)/(obs_space.high - obs_space.low)
     action_input = keras.Input(shape=(act_space.shape[0],))
-    normalized_action = (action_input - act_low)/(act_high - act_low)
+    normalized_action = (action_input - act_space.low)/(act_space.high - act_space.low)
     latent_input = keras.Input(shape=(latent_size,))
 
     dense = layers.Concatenate()([normalized_state, normalized_action, latent_input])
@@ -42,7 +40,7 @@ def generator_def(env: gym.Env, hidden_sizes: list[int], latent_size:int):
     
 
     dense = layers.Dense(state_size)(dense)
-    outputs = layers.Activation("sigmoid")(dense)*(obs_high-obs_low)+obs_low
+    outputs = layers.Activation("sigmoid")(dense)*(obs_space.high-obs_space.low)+obs_space.low
     model = keras.Model(
         inputs={
             "state": state_input,
@@ -68,7 +66,7 @@ def generator_2d_batch(generator, batch):
     return tf.reshape(generated, shape=unflattened)
 
 
-def gather_mini_batch(env: gym.Env, episode_size: int, policy=random_policy):
+def gather_mini_batch(env: ModelableEnv, episode_size: int, policy=random_policy):
     def true_generator():
         obs = env.reset()
         done = False
@@ -87,7 +85,7 @@ def gather_mini_batch(env: gym.Env, episode_size: int, policy=random_policy):
                 ep_len = 0
     return true_generator
 
-def discriminator_def(env: gym.Env, hidden_sizes: list[int], num_states: int):
+def discriminator_def(env: ModelableEnv, hidden_sizes: list[int], num_states: int):
     obs_space = env.observation_space
     act_space = env.action_space
     if(not (isinstance(act_space, gym.spaces.Box) and isinstance(obs_space, gym.spaces.Box))):
@@ -132,16 +130,16 @@ def generate_fakes(generator, batch):
 
 
 @tf.function
-def direct_dfls(generator, batch):
-    abs_diff = tf.abs(generate_fakes(generator, batch)["next_state"]-batch["next_state"])
-    return dfl.Constraints(0.0, {
-        "distance": dfl.p_mean(1.0/(1.0 + abs_diff), 1.0),
+def direct_dfls(generator, batch, closeness):
+    return dfl.Constraints(1.0, {
+        "closeness": closeness(generate_fakes(generator, batch)[
+            "next_state"], batch["next_state"])
         # "reg": 1 - tf.tanh(tf.reduce_mean(generator.losses)*10.0)
     })
 
 
 @tf.function
-def gan_dfls(generator, discriminator, real_batch):
+def gan_dfls(generator, discriminator, real_batch, closeness_dfl):
     fakes = generate_fakes(generator, real_batch)
     fakes2 = generate_fakes(generator, real_batch)
     fooled = dfl.p_mean(discriminator(fakes), 2.0)
@@ -156,7 +154,7 @@ def gan_dfls(generator, discriminator, real_batch):
     generator_dfl = dfl.Constraints(2.0, {
 #         "fooled": dfl.p_mean(discriminator(fakes2),2.0)
         "fooled": fooled2_normalized,
-        # "direct": direct_dfls(generator, real_batch)
+        # "direct": direct_dfls(generator, real_batch, closeness_dfl)
         # "reg": tf.where(tf.stop_gradient(dfl.dfl_scalar(real_fake_dfl)) < 0.1, generator_regularizer, 1.0)
     })
     generator_badness = 1.0 - tf.minimum(tf.stop_gradient(fooled2)*2, 1.0)
@@ -168,14 +166,15 @@ def gan_dfls(generator, discriminator, real_batch):
     return generator_dfl, discriminator_dfl
 
 
-def train_direct_step(generator, learning_rate):
+def train_direct_step(env: ModelableEnv, generator, learning_rate):
     gen_optimizer = keras.optimizers.Adam(lr=learning_rate)
 
     @tf.function
     def gradient_step(batch):
         for i in range(1):
             with tf.GradientTape() as gen_tape:
-                generator_dfl = direct_dfls(generator, batch)
+                
+                generator_dfl = direct_dfls(generator, batch, env.closeness_dfl)
                 generator_scalar = dfl.dfl_scalar(generator_dfl)
                 generator_loss = 1-generator_scalar
 
@@ -192,14 +191,14 @@ def train_direct_step(generator, learning_rate):
     return train_and_show
 
 
-def train_GAN_step(generator, discriminator, learning_rate):
+def train_GAN_step(env: ModelableEnv, generator, discriminator, learning_rate):
     gen_optimizer = keras.optimizers.Adam(lr=learning_rate)
     disc_optimizer = keras.optimizers.Adam(lr=learning_rate)
 
     @tf.function
     def gradient_step(batch):
         with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
-            generator_dfl, discriminator_dfl = gan_dfls(generator, discriminator, batch)
+            generator_dfl, discriminator_dfl = gan_dfls(generator, discriminator, batch, env.closeness_dfl)
             generator_scalar = dfl.dfl_scalar(generator_dfl)
             generator_loss = 1-generator_scalar
             discriminator_scalar = dfl.dfl_scalar(discriminator_dfl)
@@ -238,7 +237,7 @@ def system_identify(env_name: str,
                     latent_size: int,
                     gan: bool,
                     load_saved: Union[str, None]):
-    env = gym.make(env_name)
+    env = modelable_env.make_modelable(gym.make(env_name))
     if load_saved:
         generator = tf.keras.models.load_model(load_saved)
     else:
@@ -258,13 +257,13 @@ def system_identify(env_name: str,
     pathlib.Path("caches").mkdir(parents=True, exist_ok=True)
     data = dataset.take(num_batches).apply(tf.data.experimental.assert_cardinality(num_batches)).cache(f"caches/{env_name}_nb:{num_batches}_e:{episode_size}_b:{batch_size}")
     if gan:
-        trainer = train_GAN_step(generator, discriminator, learning_rate)
+        trainer = train_GAN_step(env, generator, discriminator, learning_rate)
     else:
-        trainer = train_direct_step(generator, learning_rate)
+        trainer = train_direct_step(env, generator, learning_rate)
 
     def save_checkpoint(epoch):
         for batch in validation_data:
-            print(show_info(direct_dfls(generator, batch)))
+            print(show_info(direct_dfls(generator, batch, env.closeness_dfl)))
         utils.save_checkpoint(filepath, generator, epoch)
 
     utils.train_loop([data]*epochs, trainer, every_n_seconds={"freq": save_freq, "callback": save_checkpoint})
@@ -272,11 +271,11 @@ def system_identify(env_name: str,
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--env_name', type=str, help="gym environment", default="Pendulum-v0")
+    parser.add_argument('--env_name', type=str, help="gym environment", default="Pendulum-v1")
     parser.add_argument('--save_freq', type=int, default=15)
     parser.add_argument('--learning_rate', type=float, default=1e-3)
     parser.add_argument('--episode_size', type=int, default=200)
-    parser.add_argument('--batch_size', type=int, default=100)
+    parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--num_states', type=int, default=1)
     parser.add_argument('--num_batches', type=int, default=1000)
     parser.add_argument('--num_validation_batches', type=int, default=20)
@@ -284,7 +283,7 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', type=int, default=200)
     parser.add_argument('--gan', action='store_true')
     parser.add_argument('--load_saved', type=str, default=None)
-    parser.add_argument('--generator_hidden_sizes', nargs="+", type=int, default=[100, 100, 100])
+    parser.add_argument('--generator_hidden_sizes', nargs="+", type=int, default=[100, 500, 100])
     parser.add_argument('--discriminator_hidden_sizes', nargs="+", type=int, default=[300, 300])
     args = parser.parse_args()
     # tf.debugging.experimental.enable_dump_debug_info('my-tfdbg-dumps', tensor_debug_mode="FULL_HEALTH")

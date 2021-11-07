@@ -38,7 +38,7 @@
             providers.pyglet="nixpkgs";
             providers.pygame="nixpkgs";
             providers.pybullet="nixpkgs";
-            # providers.matplotlib="nixpkgs";
+            providers.matplotlib="nixpkgs";
             #providers.tensorflow="nixpkgs";
 
             requirements=''
@@ -54,6 +54,7 @@
               pygame
               pybullet
               tf2rl
+              pyquaternion
               pylint
               #GitPython>=3.1.17
             '';

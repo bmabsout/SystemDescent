@@ -4,10 +4,15 @@ from typing import NamedTuple, Union, Dict, Tuple
 
 @tf.function
 def geo(l, slack=1e-15,**kwargs):
-    n = tf.cast(tf.size(l), tf.float32)
+    # n = tf.cast(tf.size(l), tf.float32)
     # < 1e-30 because nans start appearing out of nowhere otherwise
-    slacked = l + slack
-    return tf.reduce_prod(tf.where(slacked < 1e-30, 0., slacked)**(1.0/n), **kwargs) - slack
+    slacked = l+slack
+    mean_log = tf.reduce_mean(tf.math.log(tf.maximum(slacked, 1e-20)))
+    if(tf.reduce_any(slacked < 1e-20)):
+        return 0.0
+    else:
+        return tf.exp(mean_log)-slack
+    # return tf.reduce_prod(tf.where(slacked < 1e-30, 0., slacked)**(1.0/n), **kwargs) - slack
 
 @tf.function
 def p_mean(l, p, slack=1e-9, **kwargs):
