@@ -6,6 +6,8 @@
     flake-utils.url = "github:numtide/flake-utils";
     nixpkgs.url = "nixpkgs/6120ac5cd201f6cb593d1b80e861be0342495be9";
     mach-nix.url = github:DavHau/mach-nix;
+    tf2rl.url= "./tf2rl";
+    tf2rl.flake=false;
   };
 
   outputs = inputs:
@@ -53,11 +55,14 @@
               noise
               pygame
               pybullet
-              tf2rl
+              # tf2rl
               pyquaternion
               pylint
+              tensorflow-probability
+              tensorflow-addons
               #GitPython>=3.1.17
             '';
+            packagesExtra=[ inputs.tf2rl ];
           };
       in {
         devShell = pkgs.mkShell {
