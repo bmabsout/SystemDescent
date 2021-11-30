@@ -11,7 +11,6 @@ import argparse
 def plot_lyapunov(lyapunov, actor, dynamics, set_point):
 
     pts = 200
-
     theta = np.linspace(-np.pi, np.pi, pts).reshape(-1,1)
     theta_dot = np.linspace(-7.0, 7.0,pts).reshape(-1,1)
 

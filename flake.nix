@@ -6,8 +6,8 @@
     flake-utils.url = "github:numtide/flake-utils";
     nixpkgs.url = "nixpkgs/6120ac5cd201f6cb593d1b80e861be0342495be9";
     mach-nix.url = github:DavHau/mach-nix;
-    tf2rl.url= "./tf2rl";
-    tf2rl.flake=false;
+    # tf2rl.url= "path:./tf2rl";
+    # tf2rl.flake=false;
   };
 
   outputs = inputs:
@@ -34,7 +34,7 @@
             vscode = pkgs.vscodium.fhs;
             # vscodeExtensions = extensions;
           };
-
+          
           python-with-deps = mach-nix-utils.mkPython {
             _.box2d-py = { nativeBuildInputs.add = with pkgs; [ swig ]; }; 
             providers.pyglet="nixpkgs";
@@ -55,14 +55,20 @@
               noise
               pygame
               pybullet
+              joblib
               # tf2rl
               pyquaternion
               pylint
+              cpprb
               tensorflow-probability
               tensorflow-addons
               #GitPython>=3.1.17
             '';
-            packagesExtra=[ inputs.tf2rl ];
+            packagesExtra=[
+              # (mach-nix-utils.buildPythonPackage {
+              #   src=./tf2rl;
+              # })
+            ];
           };
       in {
         devShell = pkgs.mkShell {
@@ -74,6 +80,11 @@
             python-with-deps
           ];
         };
+
+        # shellHook=''
+        #   virtualenv pyenv
+
+        # '';
       }
     );
 }

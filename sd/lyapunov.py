@@ -203,4 +203,3 @@ if __name__ == "__main__":
 	dataset = tf.data.Dataset.from_generator(generate_dataset(env), output_signature=dataset_spec)
 	batched_dataset = dataset.batch(args.batch_size).take(args.num_batches).cache()
 	train(batched_dataset, dynamics_model, actor, lyapunov_model, state_shape, args)
-

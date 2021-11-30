@@ -14,6 +14,7 @@ def geo(l, slack=1e-15,**kwargs):
         return tf.exp(mean_log)-slack
     # return tf.reduce_prod(tf.where(slacked < 1e-30, 0., slacked)**(1.0/n), **kwargs) - slack
 
+
 @tf.function
 def p_mean(l, p, slack=1e-9, **kwargs):
     """
@@ -50,18 +51,18 @@ def smooth_constraint(x, from_low, from_high, to_low=0.03, to_high=0.97, starts_
     return scale(tf.sigmoid(transform(x, from_low, from_high, sigmoid_low, sigmoid_high)))
 
 
-DFL = Union['DFL', tf.Tensor]
-# currently specialized to tf tensors, can be made generic if https://bugs.python.org/issue43923 is solved
+
 
 class Constraints(NamedTuple):
     '''DFL stands for Differentiable fuzzy logic
         it is a recursive structure where there are constraints of constraints, the operator is the argument to the generalized mean, the second is the definition of the constraints.
         '''
     operator: tf.Tensor
-    constraints: Dict[str, DFL]
+    constraints: Dict[str, 'DFL']
 
+DFL = Union[Constraints, tf.Tensor]
+# currently specialized to tf tensors, can be made generic if https://bugs.python.org/issue43923 is solved
 
-# @tf.function
 def dfl_scalar(dfl: DFL):
     return (
             p_mean(tf.stack(list(map(dfl_scalar, dfl.constraints.values()))),dfl.operator)
@@ -79,3 +80,11 @@ def format_dfl(dfl: DFL):
         return np.array2string(dfl.numpy().squeeze(), formatter={'float_kind':lambda x: f"{x:.2e}"})
     else:
         return str(dfl)
+
+
+@tf.function
+def implies(normed_pred, normed_implied):
+    return normed_pred*normed_implied**normed_pred
+
+# def and(dfl1: DFL, dfl2: DFL):
+#     return Constraints(0, )

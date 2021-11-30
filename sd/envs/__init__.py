@@ -53,7 +53,7 @@ register(
     entry_point='sd.envs.drone.modeled_attitude_ctrl_env:ModeledAttitudeEnv',
     max_episode_steps=400,
     kwargs={
-        "model_path": "models/AttitudeEnv-v0/5f26ac/checkpoints/checkpoint2"
+        "model_path": "models/AttitudeEnv-v0/1ca683/checkpoints/checkpoint9"
     }
 )
 
@@ -62,6 +62,6 @@ register(
     entry_point='sd.envs.drone.modeled_attitude_ctrl_env:ModeledSetpointedAttitudeEnv',
     max_episode_steps=50,
     kwargs={
-        "model_path": "models/AttitudeEnv-v0/5f26ac/checkpoints/checkpoint2"
+        "model_path": "models/AttitudeEnv-v0/1ca683/checkpoints/checkpoint9"
     }
 )

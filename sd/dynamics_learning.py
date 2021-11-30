@@ -171,14 +171,10 @@ def train_direct_step(env: ModelableEnv, generator, learning_rate):
 
     @tf.function
     def gradient_step(batch):
-        for i in range(1):
-            with tf.GradientTape() as gen_tape:
-                
-                generator_dfl = direct_dfls(generator, batch, env.closeness_dfl)
-                generator_scalar = dfl.dfl_scalar(generator_dfl)
-                generator_loss = 1-generator_scalar
-
-            # selected_sub_weights = map(lambda matrix: , generator.trainable_weights)
+        with tf.GradientTape() as gen_tape:
+            generator_dfl = direct_dfls(generator, batch, env.closeness_dfl)
+            generator_scalar = dfl.dfl_scalar(generator_dfl)
+            generator_loss = 1-generator_scalar
 
             gen_grads = gen_tape.gradient(generator_loss, generator.trainable_weights)
             gen_optimizer.apply_gradients(zip(gen_grads, generator.trainable_weights))
@@ -273,9 +269,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--env_name', type=str, help="gym environment", default="Pendulum-v1")
     parser.add_argument('--save_freq', type=int, default=15)
-    parser.add_argument('--learning_rate', type=float, default=1e-3)
+    parser.add_argument('--learning_rate', type=float, default=1e-4)
     parser.add_argument('--episode_size', type=int, default=200)
-    parser.add_argument('--batch_size', type=int, default=256)
+    parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--num_states', type=int, default=1)
     parser.add_argument('--num_batches', type=int, default=1000)
     parser.add_argument('--num_validation_batches', type=int, default=20)
@@ -283,7 +279,7 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', type=int, default=200)
     parser.add_argument('--gan', action='store_true')
     parser.add_argument('--load_saved', type=str, default=None)
-    parser.add_argument('--generator_hidden_sizes', nargs="+", type=int, default=[100, 500, 100])
+    parser.add_argument('--generator_hidden_sizes', nargs="+", type=int, default=[100, 100])
     parser.add_argument('--discriminator_hidden_sizes', nargs="+", type=int, default=[300, 300])
     args = parser.parse_args()
     # tf.debugging.experimental.enable_dump_debug_info('my-tfdbg-dumps', tensor_debug_mode="FULL_HEALTH")

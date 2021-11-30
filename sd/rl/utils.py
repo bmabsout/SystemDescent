@@ -2,6 +2,7 @@ import gym
 from gym import spaces
 import numpy as np
 import time
+from pyquaternion import Quaternion
 
 class FlattenWrapper(gym.Wrapper):
     r"""wrapper that flattens observation and actions, and sums the rewards if it's multidimensional"""
@@ -42,3 +43,19 @@ def sync(i, start_time, timestep):
         if elapsed < (i*timestep):
             time.sleep(timestep*i - elapsed)
 
+
+def intrinsic_euler_from_quats(q1: Quaternion, q2: Quaternion, on_error=None):
+    try:
+        diff: Quaternion = q1.inverse * q2
+    except:
+        if on_error:
+            on_error()
+        diff = Quaternion(0.0,0.0,0.0, 1.0)
+    # derivative of quaternions as intrinsic euler angles
+    intrinsic_euler = q2.rotate(diff.get_axis())*diff.angle
+        
+    # Represent angular rate as roll pitch yaw, pyquaternion uses yaw roll pitch
+    yaw = intrinsic_euler[0]
+    roll = intrinsic_euler[1]
+    pitch = intrinsic_euler[2]
+    return np.array([roll, pitch, yaw])

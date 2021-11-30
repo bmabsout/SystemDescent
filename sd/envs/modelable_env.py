@@ -20,7 +20,7 @@ class ModelableWrapper(gym.Wrapper, ModelableEnv):
 
 def make_modelable(env: gym.Env) -> ModelableEnv:
     '''
-    Adds a distance function if there are none
+    Bubbles up the Modelable Wrapper or adds one if it doesn't exist
     '''
     layer = env
     while env.unwrapped != layer:

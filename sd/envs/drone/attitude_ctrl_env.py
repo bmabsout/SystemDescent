@@ -30,7 +30,7 @@ def AttitudeEnv(**kwargs):
     return utils.FlattenWrapper(ModelableMultiAttitudeEnv(**kwargs))
 
 def SetpointedAttitudeEnv(**kwargs):
-    return utils.FlattenWrapper(SetpointWrapper(AttitudeEnv(**kwargs)))
+    return utils.FlattenWrapper(SetpointWrapper(ModelableMultiAttitudeEnv(**kwargs)))
 
 class DistanceWrapper(ModelableWrapper):
     @staticmethod
@@ -47,11 +47,11 @@ class DistanceWrapper(ModelableWrapper):
         # return cos_sim*length_sim
         # tf.print(obs1)
         max_ang_v = tf.ones((obs1.shape[0], 3)) * 3000.0
-        max_obs = max_ang_v
-        min_obs = -max_ang_v
-        # max_ang_acc = tf.ones((obs1.shape[0], 3)) * 3000.0
-        # max_obs = tf.concat([max_ang_v, max_ang_acc], axis=1)
-        # min_obs = tf.concat([-max_ang_v, -max_ang_acc], axis=1)
+        # max_obs = max_ang_v
+        # min_obs = -max_ang_v
+        max_ang_acc = tf.ones((obs1.shape[0], 3)) * 3000.0
+        max_obs = tf.concat([max_ang_v, max_ang_acc], axis=1)
+        min_obs = tf.concat([-max_ang_v, -max_ang_acc], axis=1)
         normed_obs1 = (obs1 - min_obs)/(max_obs - min_obs)
         normed_obs2 = (obs2 - min_obs)/(max_obs - min_obs)
         # tf.print(-dfl.p_mean(abs_diff, 1.0))
@@ -73,6 +73,9 @@ class Obs(TypedDict):
     ang_v: np.ndarray
     ang_acc: np.ndarray
 
+
+def rpy_to_pybullet(rpy):
+    return np.array([-rpy[1], rpy[0], -rpy[2]])
 
 class MultiAttitudeEnv(gym.Env):
 
@@ -173,6 +176,7 @@ class MultiAttitudeEnv(gym.Env):
         self.first_render_call = True
         self._housekeeping()
         self._initialize_pybullet()
+        self.CLIENT.stepSimulation()
         #### Update and store the drones kinematic information #####
         self._updateAndStoreKinematicInformation()
 
@@ -197,8 +201,9 @@ class MultiAttitudeEnv(gym.Env):
         self._housekeeping()
         for droneId, i in zip(self.DRONE_IDS, range(len(self.DRONE_IDS))):
             self.CLIENT.resetBasePositionAndOrientation(droneId, self.INIT_XYZS[i], self.quat[i])
-            self.CLIENT.resetBaseVelocity(droneId, self.vel[i], self.obs["ang_v"][i]*self.DEG2RAD)
+            self.CLIENT.resetBaseVelocity(droneId, self.vel[i], rpy_to_pybullet(self.obs["ang_v"][i]*self.DEG2RAD))
         #### Update and store the drones kinematic information #####
+        self.CLIENT.stepSimulation()
         self._updateAndStoreKinematicInformation()
         #### Return the initial observation ########################
         return self.obs
@@ -208,6 +213,7 @@ class MultiAttitudeEnv(gym.Env):
     def step(self,
              action
              ):
+        # print(action)
         action = action/2.0 + 0.5
         """Advances the environment by one simulation step.
 
@@ -337,6 +343,10 @@ class MultiAttitudeEnv(gym.Env):
             if self.GUI and self.USER_DEBUG:
                 self._showDroneLocalAxes(i)
         self.debug_force_line = -np.ones(4)
+        
+
+        for droneId, i in zip(self.DRONE_IDS, range(len(self.DRONE_IDS))):
+            self.CLIENT.resetBaseVelocity(droneId, self.vel[i], rpy_to_pybullet(self.obs["ang_v"][i]*self.DEG2RAD))
 
     def _housekeeping(self):
         """Housekeeping function.
@@ -386,10 +396,15 @@ class MultiAttitudeEnv(gym.Env):
         """ Creates the constraint keeping the drones attached around their center of gravity
         """
         for drone_id, location in zip(self.DRONE_IDS, self.INIT_XYZS):
-            self.CLIENT.createConstraint(
+            joint_id = self.CLIENT.createConstraint(
                 drone_id, -1, -1, -1, p.JOINT_POINT2POINT, [0, 0, 0], [0, 0, 0], location)
+            # self.CLIENT.changeDynamics(drone_id, joint_id, maxJointVelocity=100.0) #100 rad/s
 
     ################################################################################
+
+    def on_quaternion_error(self):
+        print("error")
+        self.reset()
 
     def _update_ang_v(self, ang_v):
         ang_v_space = self.observation_space["ang_v"]
@@ -415,19 +430,10 @@ class MultiAttitudeEnv(gym.Env):
             # ang_v[2] = orig_ang_v[0]
 
             quat = Quaternion(original_quat)
-            if np.sum(np.abs(previous_quat.q)) < 1e-15: # in case of a zero quaternion
-                previous_quat = quat
-
-            diff: Quaternion = previous_quat.inverse * quat
-            # derivative of quaternions with respect to the timestep as intrinsic euler angles
-            intrinsic_euler = quat.rotate(diff.get_axis())*diff.angle*self.RAD2DEG / self.TIMESTEP
-                
-            # pybullet represent angular rate as roll pitch yaw, but pyquaternion uses yaw roll pitch
-            yaw = intrinsic_euler[0]
-            roll = intrinsic_euler[1]
-            pitch = intrinsic_euler[2]
-            current_ang_v = np.array([roll, pitch, yaw])
-            # self._update_ang_acc((current_ang_v - self.obs["ang_v"][i])/self.TIMESTEP)
+            
+            current_ang_v = utils.intrinsic_euler_from_quats(previous_quat, quat, self.on_quaternion_error)*self.RAD2DEG/self.TIMESTEP
+            ang_acc = (current_ang_v - self.obs["ang_v"][i])/self.TIMESTEP
+            self._update_ang_acc(ang_acc)
             self._update_ang_v(current_ang_v)
             self.pos[i], self.quat[i] = np.array(original_pos), quat.q
 
@@ -555,7 +561,7 @@ class MultiAttitudeEnv(gym.Env):
     
     def _actionSpace(self):
         return spaces.Box(
-            low=-np.ones((self.NUM_DRONES,4)),
+            low=-np.ones((self.NUM_DRONES, 4)),
             high=np.ones((self.NUM_DRONES, 4)))
     
     ################################################################################
@@ -567,10 +573,10 @@ class MultiAttitudeEnv(gym.Env):
                 low=np.tile(-300.0, shape),
                 high=np.tile(300.0, shape),
             ),
-            # ang_acc = spaces.Box(
-            #     low=np.tile(0.0, shape),
-            #     high=np.tile(0.0, shape),
-            # )
+            ang_acc = spaces.Box(
+                low=np.tile(0.0, shape),
+                high=np.tile(0.0, shape),
+            )
         ))
 
 
@@ -581,10 +587,10 @@ class MultiAttitudeEnv(gym.Env):
                 low=np.tile(-3000.0, shape),
                 high=np.tile(3000.0, shape),
             ),
-            # ang_acc = spaces.Box(
-            #     low=np.tile(-3000.0, shape),
-            #     high=np.tile(3000.0, shape),
-            # )
+            ang_acc = spaces.Box(
+                low=np.tile(-20000.0, shape),
+                high=np.tile(20000.0, shape),
+            )
         ))
 
     
@@ -621,14 +627,14 @@ class SetpointWrapper(ModelableEnv, gym.Wrapper):
         obs, reward, done, info = super().step(action)
         self.setpoint = self._calculate_setpoint()
         full_obs = self.observation(obs)
-        reward = self.reward(action/2.0 + 0.5)
+        reward = self.reward(action/2.0 + 0.5, full_obs)
         return full_obs, reward, self.done(done, reward), info
 
     def reset(self):
         self.setpoint = self._calculate_setpoint()
         return self.observation(super().reset())
 
-    def reward(self, action) -> float:
+    def reward(self, action, obs) -> float:
         # ang_vel = self.obs["ang_v"]
         # setpoint = self.setpoint
 
@@ -643,25 +649,37 @@ class SetpointWrapper(ModelableEnv, gym.Wrapper):
         #                np.linalg.norm(setpoint))+1.0)/2.0
         
         # return cos_sim*length_sim*(1.0/(1.0+np.sum(action)))
-        normed_ang_v = (self.obs["ang_v"] - 3000.0)/6000.0
-        normed_setpoint = (self.setpoint - 3000.0)/6000.0
-        normed_closeness = tf.cast(1.0 - np.abs(normed_ang_v - normed_setpoint), tf.float32)
-        
-        # r = (1)
-        # print(self.obs["ang_v"], "\t", r)
-        return dfl.p_mean(dfl.smooth_constraint(normed_closeness, 0.5, 1.0), 0.0)
+        normed_obs = (obs["state"]["ang_v"] - 3000.0)/6000.0
+        normed_setpoint = (obs["setpoint"]["ang_v"] - 3000.0)/6000.0
+        normed_closeness = tf.cast(1.0 - np.abs(normed_obs - normed_setpoint), tf.float32)
+        # print(normed_closeness)
+        setpoint_following = dfl.p_mean(dfl.smooth_constraint(normed_closeness, 0.7, 1.0), 0.0)
+        # print(setpoint_following)
+        # reward_dfl = dfl.Constraints(0.0, {
+        #     "setpoint_following": setpoint_following,
+        #     "action_smallness": dfl.p_mean(1.0-action, 0)**3.0
+        # })
+        # reward_val = dfl.dfl_scalar(reward_dfl)
+        action_smallness = dfl.p_mean(1.0-action, 0)
+        # print(action_smallness)
+        # reward_val = dfl.implies(setpoint_following, action_smallness)
+        # print(action, reward_val)
+        return action_smallness*normed_closeness
 
     def done(self, done, reward):
         return done
 
     def observation(self, obs):
-        return {"child": obs, "setpoint": self.setpoint}
+        return {"state": obs, "setpoint": self.setpoint}
 
     def _observationSpace(self):
         max_setpoint = np.ones(3)*1000
         obs_space = spaces.Dict({
-            "child": self.env.observation_space,
-            "setpoint": spaces.Box(low=-max_setpoint, high=max_setpoint)
+            "state": self.env.observation_space,
+            "setpoint": spaces.Dict({
+                "ang_v": spaces.Box(low=-max_setpoint, high=max_setpoint),
+                "ang_acc": spaces.Box(low=-max_setpoint, high=max_setpoint),
+            })
         })
         return obs_space
     
@@ -671,8 +689,9 @@ class SetpointWrapper(ModelableEnv, gym.Wrapper):
         """ calculates the desired goal at the current time
         """
 
-        # return np.array([[signals.step((-100, 100))(self.simulation_time(), seed) for seed in [121,122,123]]])
-        return np.array([0.0, 0, 200])
+        # ang_v = np.array([[signals.step((-100, 100))(self.simulation_time(), seed) for seed in [121,122,123]]])
+        ang_v = np.array([0.0, 0, 0.0]) 
+        return ({"ang_v": ang_v, "ang_acc": np.array([0.0, 0, 0.0])})
 
 
 if __name__ == "__main__":
@@ -682,8 +701,14 @@ if __name__ == "__main__":
 
     env = SetpointedAttitudeEnv(gui=True, test=True, urdf_path=load_assets.get_urdf_path("cf2x.urdf"))
     i = 0
+    rw_sum = 0
     while(1):
-        env.step(env.action_space.sample()*0.0)
+        full_obs, reward, done, info = env.step(env.action_space.sample())
+        rw_sum += reward
         if(i % 100 == 0):
             env.render()
+        if(i % 500 == 0):
+            print(rw_sum)
+            rw_sum = 0
+            env.reset()
         i+=1
