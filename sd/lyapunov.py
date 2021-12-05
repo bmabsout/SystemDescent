@@ -17,6 +17,7 @@ from .dfl import *
 from . import utils
 from tqdm import tqdm
 import pprint
+import sd.envs
 
 def V_def(state_shape: Tuple[int, ...]):
 	input_state = keras.Input(shape=state_shape)

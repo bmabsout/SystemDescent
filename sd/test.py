@@ -67,7 +67,7 @@ if __name__ == "__main__":
     env_name = utils.extract_env_name(checkpoint_path)
 
     env = gym.make('Modeled' + env_name,
-        model_path=checkpoint_path, test=True, gui=True)
+        model_path=checkpoint_path)#, test=True, gui=True)
 
     dynamics = keras.models.load_model(checkpoint_path)
 
