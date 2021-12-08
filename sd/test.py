@@ -4,12 +4,13 @@ import numpy as np
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
+import matplotlib
+matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 from . import utils 
 import argparse
 
 def plot_lyapunov(lyapunov, actor, dynamics, set_point):
-
     pts = 200
     theta = np.linspace(-np.pi, np.pi, pts).reshape(-1,1)
     theta_dot = np.linspace(-7.0, 7.0,pts).reshape(-1,1)
@@ -119,4 +120,4 @@ if __name__ == "__main__":
         orig_env_obs, orig_env_reward, orig_env_done, orig_env_info = orig_env.step(orig_act)
         print("error", np.mean(np.abs(env_obs-orig_env_obs)))
         env.render()
-        # orig_env.render()
+        orig_env.render()
