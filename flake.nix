@@ -33,24 +33,26 @@
           };
 
           vscodium-with-extensions = pkgs.vscode-with-extensions.override {
-            vscode = pkgs.vscode.fhs;
+            vscode = pkgs.vscodium.fhs;
             # vscodeExtensions = extensions;
           };
           
           python-with-deps = mach-nix-utils.mkPython {
             _.box2d-py = { nativeBuildInputs.add = with pkgs; [ swig ]; }; 
-	    providers = {
-                pyglet="nixpkgs";
-                gym="nixpkgs";
-                pygame="nixpkgs";
-                pybullet="nixpkgs";
-                tkinter="nixpkgs";
-	    };
+          providers = {
+                    pyglet="nixpkgs";
+                    gym="nixpkgs";
+                    pygame="nixpkgs";
+                    pybullet="nixpkgs";
+                    tkinter="nixpkgs";
+          };
 
             requirements=''
               numpy
               tk
               matplotlib
+              future
+              tf_agents[reverb]
               tensorflow
               scipy
               gym
@@ -59,6 +61,7 @@
               box2d-py
               noise
               pygame
+              pyglet
               pybullet
               joblib
               pyquaternion
@@ -75,7 +78,7 @@
             ];
           };
 
-	nixGLIntelScript = pkgs.writeShellScriptBin "nixGLIntel" ''
+        nixGLIntelScript = pkgs.writeShellScriptBin "nixGLIntel" ''
           $(NIX_PATH=nixpkgs=${inputs.nixpkgs} nix-build ${inputs.nixGL} -A nixGLIntel --no-out-link)/bin/* "$@"
         '';
         nixGLNvidiaScript = pkgs.writeShellScriptBin "nixGLNvidia" ''
@@ -85,11 +88,9 @@
         devShell = pkgs.mkShell {
           buildInputs=[
             vscodium-with-extensions
-	    pkgs.glxinfo
             pkgs.vscode-fhs
             pkgs.python39Packages.pip
             pkgs.python39Packages.virtualenv
-	    pkgs.python39Packages.tkinter
             python-with-deps
             nixGLIntelScript
             nixGLNvidiaScript
