@@ -2,8 +2,19 @@ import tensorflow as tf
 import numpy as np
 from typing import NamedTuple, Union, Dict, Tuple
 
+#handles batches
+# def geo(l, slack=0.0):
+#     l_arr = np.array(l)
+#     if(len(l_arr.shape) == 1): # batch dimension is 0
+#         l_arr = np.array([l_arr])
+#     slacked = l_arr+slack
+#     res = np.zeros(l_arr.shape[0])
+#     non_zeros = (slacked > 1e-20).all(axis=1)
+#     res[non_zeros] = np.exp(np.mean(np.log(slacked[non_zeros]),axis=1))-slack
+#     return res.squeeze()
+
 @tf.function
-def geo(l, slack=1e-15,**kwargs):
+def geo(l, slack=1e-15,**kwargs): # doesn't handle batches correctly
     # n = tf.cast(tf.size(l), tf.float32)
     # < 1e-30 because nans start appearing out of nowhere otherwise
     slacked = l+slack
@@ -22,7 +33,7 @@ def p_mean(l, p, slack=1e-9, **kwargs):
     https://www.wolframcloud.com/obj/26a59837-536e-4e9e-8ed1-b1f7e6b58377
     """
     if p == 0.:
-        return geo(tf.abs(l), slack, **kwargs)
+        return geo(tf.abs(l), slack, **kwargs) # there's an issue with this
     elif p == np.inf:
         return tf.reduce_max(l)
     elif p == -np.inf:
@@ -84,7 +95,7 @@ def format_dfl(dfl: DFL):
 
 @tf.function
 def implies(normed_pred, normed_implied):
-    return normed_pred*normed_implied**normed_pred
+    return normed_pred*normed_implied**(1.0 - normed_pred)
 
 # def and(dfl1: DFL, dfl2: DFL):
 #     return Constraints(0, )

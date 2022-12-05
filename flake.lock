@@ -117,24 +117,7 @@
         "flake-utils": "flake-utils",
         "mach-nix": "mach-nix",
         "nixGL": "nixGL",
-        "nixpkgs": "nixpkgs_2",
-        "tf2rl": "tf2rl"
-      }
-    },
-    "tf2rl": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1638289419,
-        "narHash": "sha256-KFGwTOHaAEKdz9IuvPreIq/gL1CCJu15M9OyPb0l8y4=",
-        "owner": "bmabsout",
-        "repo": "tf2rl",
-        "rev": "c4dd444917979ea17a1c02a397df827cd9742579",
-        "type": "github"
-      },
-      "original": {
-        "owner": "bmabsout",
-        "repo": "tf2rl",
-        "type": "github"
+        "nixpkgs": "nixpkgs_2"
       }
     }
   },

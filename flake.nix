@@ -8,8 +8,6 @@
     mach-nix.url = github:DavHau/mach-nix;
     nixGL.url = github:guibou/nixGL;
     nixGL.flake = false;
-    tf2rl.url= github:bmabsout/tf2rl;
-    tf2rl.flake= false;
   };
 
   outputs = inputs:
@@ -72,9 +70,6 @@
               #GitPython>=3.1.17
             '';
             packagesExtra=[
-              (mach-nix-utils.buildPythonPackage {
-                 src=inputs.tf2rl;
-              })
             ];
           };
 
