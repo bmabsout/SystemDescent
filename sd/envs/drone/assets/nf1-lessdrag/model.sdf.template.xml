@@ -1,0 +1,459 @@
+<?xml version='1.0'?>
+<sdf version='1.6'>
+
+  <model name='nf1'>
+    <!-- a plugin with this filename is required -->
+    <plugin name="config" filename="libAircraftConfigPlugin.so">
+        <motorCount>4</motorCount>
+        <!-- Where is the center of thrust in relation to this specified link -->
+        <centerOfThrust> 
+            <link>battery</link>
+            <offset>0 0 0.058</offset>
+        </centerOfThrust>
+      <sensors>
+          <sensor type="imu">
+              <enable_angular_velocity>true</enable_angular_velocity>
+              <enable_linear_acceleration>true</enable_linear_acceleration>
+              <enable_orientation>true</enable_orientation>
+          </sensor>
+          <sensor type="esc">
+                <enable_angular_velocity>true</enable_angular_velocity>
+                <enable_temperature>true</enable_temperature>
+                <enable_current>true</enable_current>
+          </sensor>
+          <sensor type="battery">
+              <enable_voltage>true</enable_voltage>
+              <enable_current>true</enable_current>
+          </sensor>
+      </sensors>
+    </plugin>
+
+    <enable_wind>true</enable_wind>
+    <pose>0 0 0 0 0 0</pose>
+
+    <link name='frame'>
+        <pose>{{ frame.pose }}</pose>
+        <inertial>
+            <pose>{{ frame.cog }}</pose>
+            <mass>{{ frame.mass }}</mass>
+            <inertia>
+              <ixx>{{ frame.inertia[0]}}</ixx>
+              <ixy>{{ frame.inertia[1]}}</ixy>
+              <ixz>{{ frame.inertia[2]}}</ixz>
+              <iyy>{{ frame.inertia[3]}}</iyy>
+              <iyz>{{ frame.inertia[4]}}</iyz>
+              <izz>{{ frame.inertia[5]}}</izz>
+            </inertia>
+        </inertial>
+        <!--
+        <collision name='frame_collision'>
+            <pose>0 0 0.0 0 0 0</pose>
+            <geometry>
+              <box>
+                <size>0.001 0.001 0.001</size>
+              </box>
+            </geometry>
+        </collision>
+        -->
+        <visual name='frame_visual'>
+            <geometry>
+              <mesh>
+                <scale>0.001 0.001 0.001</scale>
+                <uri>{{ frame.mesh }}</uri>
+              </mesh>
+            </geometry>
+            <material>
+              <script>
+                <name>Gazebo/Grey</name>
+              </script>
+            </material>
+        </visual>
+        <gravity>1</gravity>
+      <velocity_decay/>
+      <self_collide>0</self_collide>
+    </link>
+
+    <link name='battery'>
+        <pose>{{ battery.pose }}</pose>
+      <inertial>
+        <pose>{{ battery.cog }}</pose>
+        <mass>{{ battery.mass }}</mass>
+        <inertia>
+          <ixx>{{ battery.inertia[0]}}</ixx>
+          <ixy>{{ battery.inertia[1]}}</ixy>
+          <ixz>{{ battery.inertia[2]}}</ixz>
+          <iyy>{{ battery.inertia[3]}}</iyy>
+          <iyz>{{ battery.inertia[4]}}</iyz>
+          <izz>{{ battery.inertia[5]}}</izz>
+		</inertia>
+      </inertial>
+      <!--
+      <collision name='battery_collision'>
+        <pose>0 0 0.0185 0 -0 0</pose>
+        <geometry>
+            <box>                 
+                <size>0.035 0.073 0.037</size>
+            </box>
+        </geometry>
+      </collision>
+        -->
+      <visual name='battery_visual'>
+        <pose>0 0 0 0 -0 0</pose>
+        <geometry>
+          <mesh>
+            <scale>0.001 0.001 0.001</scale>
+            <uri>{{ battery.mesh }}</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <script>
+            <name>Gazebo/Yellow</name>
+            <uri>__default__</uri>
+          </script>
+        </material>
+      </visual>
+      <gravity>1</gravity>
+      <velocity_decay/>
+      <self_collide>0</self_collide>
+    </link>
+    <joint name="battery_joint" type="revolute">
+        <child>battery</child>
+        <parent>frame</parent>
+         <axis>
+            <xyz>0 0 1</xyz>
+            <limit>
+              <lower>0</lower>
+              <upper>0</upper>
+              <effort>0</effort>
+              <velocity>0</velocity>
+            </limit>
+            <dynamics>
+              <spring_reference>0</spring_reference>
+              <spring_stiffness>0</spring_stiffness>
+            </dynamics>
+          </axis>
+    </joint>
+
+    {% for motor in motors %}
+    <link name="{{ motor.id }}">
+        <pose>{{ motor.pose }}</pose>
+      <inertial>
+        <pose>{{ motor.cog }}</pose>
+        <mass>{{ motor.mass }}</mass>
+        <inertia>
+          <ixx>{{ motor.inertia[0]}}</ixx>
+          <ixy>{{ motor.inertia[1]}}</ixy>
+          <ixz>{{ motor.inertia[2]}}</ixz>
+          <iyy>{{ motor.inertia[3]}}</iyy>
+          <iyz>{{ motor.inertia[4]}}</iyz>
+          <izz>{{ motor.inertia[5]}}</izz>
+        </inertia>
+      </inertial>
+      <!--
+      <collision name="{{ motor.id }}_collision">
+        <pose>0 0 0 0 -0 0</pose>
+        <geometry>
+          <cylinder>
+            <length>0.005</length>
+            <radius>0.0133</radius>
+          </cylinder>
+        </geometry>
+      </collision>
+-->
+      <visual name="{{ motor.id }}_visual">
+        <pose>0 0 0 0 -0 0</pose>
+        <geometry>
+          <mesh>
+            <scale>0.001 0.001 0.001</scale>
+            <uri>{{ motor.mesh }}</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <script>
+            <name>Gazebo/Black</name>
+            <uri>__default__</uri>
+          </script>
+        </material>
+      </visual>
+      <gravity>1</gravity>
+      <velocity_decay/>
+      <self_collide>0</self_collide>
+    </link>
+
+    <!--
+     For some reason fixed joint doesnt work, it causes the 
+    parent link to oscillate-->
+        <!--
+    <joint name="{{ motor.id }}_joint" type="fixed">
+        
+        <pose frame="">0 0 0 0 -0 0</pose>
+        <child>{{ motor.id }}</child>
+        <parent>frame</parent>
+    </joint>
+
+        -->
+    <joint name="{{ motor.id }}_joint" type="revolute">
+        
+        <pose>0 0 0 0 -0 0</pose>
+        <child>{{ motor.id }}</child>
+        <parent>frame</parent>
+         <axis>
+            <xyz>0 0 1</xyz>
+            <limit>
+              <lower>0</lower>
+              <upper>0</upper>
+              <effort>0</effort>
+              <velocity>0</velocity>
+            </limit>
+            <dynamics>
+              <spring_reference>0</spring_reference>
+              <spring_stiffness>0</spring_stiffness>
+            </dynamics>
+        <use_parent_model_frame>1</use_parent_model_frame>
+          </axis>
+
+    </joint>
+
+    {% endfor %}
+
+    {% for prop in props %}
+    <link name="{{ prop.id }}">
+    <pose>{{ prop.pose }}</pose>
+      <inertial>
+        <pose>{{ prop.cog }}</pose>
+        <mass>{{ prop.mass }}</mass>
+        <inertia>
+          <ixx>{{ prop.inertia[0]}}</ixx>
+          <ixy>{{ prop.inertia[1]}}</ixy>
+          <ixz>{{ prop.inertia[2]}}</ixz>
+          <iyy>{{ prop.inertia[3]}}</iyy>
+          <iyz>{{ prop.inertia[4]}}</iyz>
+          <izz>{{ prop.inertia[5]}}</izz>
+        </inertia>
+      </inertial>
+      <!--
+      <collision name="{{ prop.id }}_collision">
+        <pose>0 0 0 1.57 -0 0</pose>
+        <geometry>
+          <cylinder>
+            <length>0.005</length>
+            <radius>0.0635</radius>
+          </cylinder>
+        </geometry>
+        <surface>
+          <contact>
+            <ode/>
+          </contact>
+          <friction>
+            <ode/>
+          </friction>
+        </surface>
+      </collision>
+-->
+      <visual name="{{ prop.id }}_visual">
+        <pose>0 0 0 0 -0 0</pose>
+        <geometry>
+          <mesh>
+            <scale>0.001 0.001 0.001</scale>
+            <uri>{{ prop.mesh }}</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <script>
+            <name>Gazebo/Red</name>
+            <uri>__default__</uri>
+          </script>
+        </material>
+      </visual>
+      <gravity>1</gravity>
+      <velocity_decay/>
+      <self_collide>0</self_collide>
+    </link>
+    <joint name="{{ prop.id }}_joint" type='revolute'>
+      <child>{{ prop.id }}</child>
+
+      <parent>frame</parent>
+      <!--<parent>{{ prop.parent }}</parent>-->
+      <axis>
+        <xyz>0 0 1</xyz>
+        <limit>
+          <lower>-1e+16</lower>
+          <upper>1e+16</upper>
+        </limit>
+        <dynamics>
+          <spring_reference>0</spring_reference>
+          <spring_stiffness>0</spring_stiffness>
+        </dynamics>
+        <use_parent_model_frame>1</use_parent_model_frame>
+      </axis>
+    </joint>
+    <plugin name="{{ prop.id }}_motor_model" filename='libgazebo_motor_model.so'>
+      <robotNamespace></robotNamespace>
+      <jointName>{{ prop.id }}_joint</jointName>
+      <linkName>{{ prop.id }}</linkName>
+      <turningDirection>{{ prop.direction }}</turningDirection>
+      <timeConstantUp>0.0125</timeConstantUp>
+      <timeConstantDown>0.025</timeConstantDown>
+      <maxRotVelocity>3500</maxRotVelocity>
+      <motorConstant>8.54858e-06</motorConstant>
+      <momentConstant>0.06</momentConstant>
+      <motorNumber>{{ loop.index - 1 }}</motorNumber>
+      <rotorDragCoefficient>0</rotorDragCoefficient>
+      <rollingMomentCoefficient>0</rollingMomentCoefficient>
+      <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
+    </plugin>
+    {% endfor %}
+    <!--
+    <link name='camera'>
+      <pose>0 -0.0365 0.057 -0.61 -0 0</pose>
+      <inertial> 
+          <pose>{{ camera.cog }}</pose>
+          <mass>{{ camera.mass }}</mass>
+        <inertia>
+          <ixx>{{ camera.inertia[0]}}</ixx>
+          <ixy>{{ camera.inertia[1]}}</ixy>
+          <ixz>{{ camera.inertia[2]}}</ixz>
+          <iyy>{{ camera.inertia[3]}}</iyy>
+          <iyz>{{ camera.inertia[4]}}</iyz>
+          <izz>{{ camera.inertia[5]}}</izz>
+        </inertia>
+      </inertial>
+      <collision name='camera_collision'>
+        <pose>0 0 0.0095 0 -0 0</pose>
+        <geometry>
+            <box>                 
+                <size>0.019 0.024 0.019</size>
+            </box>
+        </geometry>
+        <surface>
+          <contact>
+            <ode/>
+          </contact>
+          <friction>
+            <ode/>
+          </friction>
+        </surface>
+      </collision>
+      <visual name='camera_visual'>
+        <pose>0 0 0 0 -0 0</pose>
+        <geometry>
+          <mesh>
+            <scale>0.001 0.001 0.001</scale>
+            <uri>{{ camera.mesh}}</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <script>
+            <name>Gazebo/White</name>
+            <uri>__default__</uri>
+          </script>
+        </material>
+      </visual>
+    </link>
+    <joint name="camera_joint" type="fixed">
+        <child>camera</child>
+        <parent>frame</parent>
+    </joint>
+    -->
+
+    <link name='fc_stack'>
+        <pose>{{ fc.pose }}</pose>
+      <inertial>
+          <pose>{{ fc.cog }}</pose>
+          <mass>{{ fc.mass }}</mass>
+        <inertia>
+          <ixx>{{ fc.inertia[0]}}</ixx>
+          <ixy>{{ fc.inertia[1]}}</ixy>
+          <ixz>{{ fc.inertia[2]}}</ixz>
+          <iyy>{{ fc.inertia[3]}}</iyy>
+          <iyz>{{ fc.inertia[4]}}</iyz>
+          <izz>{{ fc.inertia[5]}}</izz>
+        </inertia>
+      </inertial>
+      <!--
+      <collision name='fc_stack_collision'>
+        <pose>0 0 0.0095 0 -0 0</pose>
+        <geometry>
+            <box>                 
+                <size>0.019 0.024 0.019</size>
+            </box>
+        </geometry>
+        <surface>
+          <contact>
+            <ode/>
+          </contact>
+          <friction>
+            <ode/>
+          </friction>
+        </surface>
+      </collision>
+-->
+      <visual name='fc_stack_visual'>
+        <pose>0 0 0 0 -0 0</pose>
+        <geometry>
+          <mesh>
+            <scale>0.001 0.001 0.001</scale>
+            <uri>{{ fc.mesh }}</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <script>
+            <name>Gazebo/Black</name>
+            <uri>__default__</uri>
+          </script>
+        </material>
+      </visual>
+      <gravity>1</gravity>
+      <velocity_decay/>
+      <self_collide>0</self_collide>
+    </link>
+    <joint name="fc_stack_joint" type="revolute">
+        <child>fc_stack</child>
+        <parent>frame</parent>
+         <axis>
+            <xyz>0 0 1</xyz>
+            <limit>
+              <lower>0</lower>
+              <upper>0</upper>
+              <effort>0</effort>
+              <velocity>0</velocity>
+            </limit>
+            <dynamics>
+              <spring_reference>0</spring_reference>
+              <spring_stiffness>0</spring_stiffness>
+            </dynamics>
+          </axis>
+    </joint>
+      <!--
+      <sensor name="imu_sensor" type="imu">
+        <pose>0 0 0 3.141593 0 0</pose>
+        <always_on>1</always_on>
+        <update_rate>1000.0</update_rate>
+      </sensor>
+       -->
+
+    <!--
+    <link name='center_of_thrust'>
+      <pose>0 0.0 0.058 0 -0 0</pose>
+    </link>
+    <joint name="center_of_thrust_joint" type="fixed">
+        <child>center_of_thrust</child>
+        <parent>frame</parent>
+    </joint>
+    -->
+    <plugin name='gazebo_imu_plugin' filename='libgazebo_imu_plugin.so'>
+      <robotNamespace></robotNamespace>
+      <linkName>fc_stack</linkName>
+      <imuTopic>/imu</imuTopic>
+      <gyroscopeNoiseDensity>0.0003394</gyroscopeNoiseDensity>
+      <gyroscopeRandomWalk>3.8785e-05</gyroscopeRandomWalk>
+      <gyroscopeBiasCorrelationTime>1000.0</gyroscopeBiasCorrelationTime>
+      <gyroscopeTurnOnBiasSigma>0.0087</gyroscopeTurnOnBiasSigma>
+      <accelerometerNoiseDensity>0.004</accelerometerNoiseDensity>
+      <accelerometerRandomWalk>0.006</accelerometerRandomWalk>
+      <accelerometerBiasCorrelationTime>300.0</accelerometerBiasCorrelationTime>
+      <accelerometerTurnOnBiasSigma>0.196</accelerometerTurnOnBiasSigma>
+    </plugin>
+    <static>0</static>
+  </model>
+</sdf>

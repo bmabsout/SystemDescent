@@ -50,6 +50,8 @@
               tk
               matplotlib
               future
+              mpi4py
+              psutil
               tf_agents[reverb]
               tensorflow
               scipy

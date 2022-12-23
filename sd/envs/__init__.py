@@ -1,5 +1,6 @@
 from gym.envs.registration import register
 
+
 register(
     id='Pendulum-v1',
     entry_point='sd.envs.Pendulum.Pendulum:PendulumEnv',
@@ -64,4 +65,10 @@ register(
     kwargs={
         "model_path": "models/AttitudeEnv-v0/1ca683/checkpoints/checkpoint9"
     }
+)
+
+register(
+    id='SetpointedAmazingBallEnv-v0',
+    entry_point='sd.envs.amazingball.env:SetpointedAmazingBallEnv',
+    max_episode_steps=400,
 )
