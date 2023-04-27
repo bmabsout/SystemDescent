@@ -1,6 +1,6 @@
-import gym
-from gym import spaces
-from gym.utils import seeding
+import gymnasium as gym
+from gymnasium import spaces
+from gymnasium.utils import seeding
 import numpy as np
 from os import path
 from sd.envs.modelable_env import ModelableEnv
@@ -50,7 +50,7 @@ class PendulumEnv(ModelableEnv):
         newth = th + newthdot * dt
 
         self.state = np.array([newth, newthdot])
-        return self._get_obs(), -costs, False, {}
+        return self._get_obs(), -costs, False, False, {}
 
     def reset(self):
         high = np.array([np.pi, 1])
@@ -64,7 +64,7 @@ class PendulumEnv(ModelableEnv):
 
     def render(self, mode="human"):
         if self.viewer is None:
-            from gym.envs.classic_control import rendering
+            from gymnasium.envs.classic_control import rendering
 
             self.viewer = rendering.Viewer(500, 500)
             self.viewer.set_bounds(-2.2, 2.2, -2.2, 2.2)

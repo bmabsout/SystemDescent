@@ -1,5 +1,5 @@
-import gym
-import gym.spaces
+import gymnasium as gym
+import gymnasium.spaces
 import tensorflow as tf
 from sd import dfl
 

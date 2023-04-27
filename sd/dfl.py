@@ -66,6 +66,7 @@ def smooth_constraint(x, from_low, from_high, to_low=0.03, to_high=0.97, starts_
 
 class Constraints(NamedTuple):
     '''DFL stands for Differentiable fuzzy logic
+        The intention is to build loss functions out of multiple objectives
         it is a recursive structure where there are constraints of constraints, the operator is the argument to the generalized mean, the second is the definition of the constraints.
         '''
     operator: tf.Tensor

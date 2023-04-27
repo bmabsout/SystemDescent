@@ -1,9 +1,9 @@
 from sd.envs import modelable_env
 import tensorflow as tf
-import gym
+import gymnasium as gym
 import os.path as osp
 import numpy as np
-from gym.spaces import Box, Discrete
+from gymnasium.spaces import Box, Discrete
 import argparse
 import time
 from tensorflow import keras
@@ -15,10 +15,29 @@ from typing import Union
 import sd.envs # brings envs in scope
 from sd.envs.modelable_env import ModelableEnv, ModelableWrapper
 
+"""
+To predict the dynamics. 
+The decretized version of differential equation. 
+
+Modeling the transition function (.update .step)
+"""
+
 def random_policy(obs, action_space):
     return action_space.sample()
 
 def generator_def(env: ModelableEnv, hidden_sizes: list[int], latent_size:int):
+    """
+    The function return an untrained DNN representing the environment dynamics. 
+    Lyapunov function is not included in the model, and it should not.
+
+    Args:
+        env (ModelableEnv): The environment to be modeled. This includes the observation space and action space.
+        hidden_sizes (list[int]): The number of hidden layers and the number of neurons in each layer.
+        latent_size (int): The dimension of the latent space. # Q: What is the latent space?
+
+    Returns:
+        keras.Model: The untrained DNN representing the environment dynamics.
+    """
     obs_space = env.observation_space
     act_space = env.action_space
     print(act_space, obs_space)
@@ -67,6 +86,10 @@ def generator_2d_batch(generator, batch):
 
 
 def gather_mini_batch(env: ModelableEnv, episode_size: int, policy=random_policy):
+    """
+    Return a python generator that generates a series of state-action-next_state tuples.
+    The trajectory is of size episode_size. The true_generator generates a 1_D array. 
+    """
     def true_generator():
         obs = env.reset()
         done = False
@@ -74,7 +97,7 @@ def gather_mini_batch(env: ModelableEnv, episode_size: int, policy=random_policy
         while True:
             action = policy(obs, env.action_space)
             prev_obs = obs
-            obs, reward, done, info = env.step(action)
+            obs, reward, done, truncated, info = env.step(action)
             # env.render()
             # time.sleep(1e-3)
             yield {"state": prev_obs, "action": action, "next_state": obs}
@@ -85,16 +108,18 @@ def gather_mini_batch(env: ModelableEnv, episode_size: int, policy=random_policy
                 ep_len = 0
     return true_generator
 
-def discriminator_def(env: ModelableEnv, hidden_sizes: list[int], num_states: int):
+def discriminator_def(env: ModelableEnv, hidden_sizes: list[int], num_transitions: int):
+    """ Return model. When the model performs well. 
+        It discriminates whether the transition originated from the environment (output=1) or the generator (output=0)."""
     obs_space = env.observation_space
     act_space = env.action_space
     if(not (isinstance(act_space, gym.spaces.Box) and isinstance(obs_space, gym.spaces.Box))):
         raise NotImplementedError
     state_size = obs_space.shape[0]
 
-    states_input = keras.Input(shape=(num_states, obs_space.shape[0]))
-    actions_input = keras.Input(shape=(num_states, act_space.shape[0]))
-    next_states_input = keras.Input(shape=(num_states, obs_space.shape[0]))
+    states_input = keras.Input(shape=(num_transitions, obs_space.shape[0]))
+    actions_input = keras.Input(shape=(num_transitions, act_space.shape[0]))
+    next_states_input = keras.Input(shape=(num_transitions, obs_space.shape[0]))
 
     dense = layers.Concatenate()([states_input, actions_input, next_states_input])
     for hidden_size in hidden_sizes:
@@ -223,7 +248,7 @@ def system_identify(env_name: str,
                     generator_hidden_sizes: list[int],
                     discriminator_hidden_sizes: list[int],
                     batch_size: int,
-                    num_states: int,
+                    num_transitions: int,
                     num_batches: int,
                     epochs: int,
                     episode_size: int,
@@ -233,21 +258,21 @@ def system_identify(env_name: str,
                     latent_size: int,
                     gan: bool,
                     load_saved: Union[str, None]):
-    env = modelable_env.make_modelable(gym.make(env_name))
+    env = modelable_env.make_modelable(gym.make(env_name))  # make_modelable, create a loss for the env if it doesn't have one
     if load_saved:
         generator = tf.keras.models.load_model(load_saved)
     else:
-        generator = generator_def(env, generator_hidden_sizes, latent_size)
-    discriminator = discriminator_def(env, discriminator_hidden_sizes, num_states)
+        generator = generator_def(env, generator_hidden_sizes, latent_size)  # generator is a DNN for environment 
+    discriminator = discriminator_def(env, discriminator_hidden_sizes, num_transitions)
     filepath = utils.random_subdir("models/" + env_name)
-    dataset_spec = ({
+    dataset_spec = {
         "state": tf.TensorSpec(shape=env.observation_space.shape, dtype=tf.float32)
         , "action": tf.TensorSpec(shape=env.action_space.shape, dtype=tf.float32)
         , "next_state": tf.TensorSpec(shape=env.observation_space.shape, dtype=tf.float32)
-        })
+        }
 
     dataset = tf.data.Dataset.from_generator(gather_mini_batch(env, episode_size), output_signature=dataset_spec) \
-        .shuffle(episode_size*10).batch(num_states, drop_remainder=True).batch(batch_size, drop_remainder=True)
+        .shuffle(episode_size*10).batch(num_transitions, drop_remainder=True).batch(batch_size, drop_remainder=True)
 
     validation_data = dataset.take(num_validation_batches).cache()
     pathlib.Path("caches").mkdir(parents=True, exist_ok=True)
@@ -272,12 +297,12 @@ if __name__ == "__main__":
     parser.add_argument('--learning_rate', type=float, default=1e-4)
     parser.add_argument('--episode_size', type=int, default=200)
     parser.add_argument('--batch_size', type=int, default=128)
-    parser.add_argument('--num_states', type=int, default=1)
+    parser.add_argument('--num_transitions', type=int, default=1, help="number of transition tuples representing the amount of values a discriminator has to work with in a batch")
     parser.add_argument('--num_batches', type=int, default=1000)
     parser.add_argument('--num_validation_batches', type=int, default=20)
     parser.add_argument('--latent_size', type=int, default=0)
     parser.add_argument('--epochs', type=int, default=200)
-    parser.add_argument('--gan', action='store_true')
+    parser.add_argument('--gan', action='store_true', help="uses a GAN for learning a stochastic model of the transition function of the environment's observations")
     parser.add_argument('--load_saved', type=str, default=None)
     parser.add_argument('--generator_hidden_sizes', nargs="+", type=int, default=[100, 100])
     parser.add_argument('--discriminator_hidden_sizes', nargs="+", type=int, default=[300, 300])
