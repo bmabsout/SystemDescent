@@ -1,13 +1,13 @@
-import gym
-from gym import spaces
-from gym.utils import seeding
+import gymnasium as gym
+from gymnasium import spaces
+from gymnasium.utils import seeding
 import numpy as np
 import math
 from typing import Tuple
 from os import path
 import tensorflow as tf
 from tensorflow import keras
-from tensorflow.keras import layers
+from keras import layers
 from tensorflow.python.keras import losses
 from functools import reduce
 from pathlib import Path
@@ -94,11 +94,12 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 	def batch_value(batch):
 		maxRepetitions = 15
 		repetitions = tf.random.uniform(shape=[], minval=10, maxval=maxRepetitions+1, dtype=tf.dtypes.int32)
-		initial_states = batch["state"]
+		prev_states = batch["state"]
 		set_points = batch["setpoint"]
-		fxu, states = run_full_model(initial_states, set_points,repeat=repetitions)
-		Vx = V({"state": initial_states, "setpoint": set_points}, training=True)
+		fxu, states = run_full_model(prev_states, set_points,repeat=repetitions)
+		Vx = V({"state": prev_states, "setpoint": set_points}, training=True)
 		V_fxu = V({"state": fxu, "setpoint": set_points}, training=True)
+
 		zero = p_mean(1.0-V({"state": set_points, "setpoint": set_points}), 0)**2.0
 		diff = (Vx - V_fxu)
 		transposed_states = tf.transpose(states, [2,0,1])
