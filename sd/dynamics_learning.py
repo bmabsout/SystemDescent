@@ -91,7 +91,7 @@ def gather_mini_batch(env: ModelableEnv, episode_size: int, policy=random_policy
     The trajectory is of size episode_size. The true_generator generates a 1_D array. 
     """
     def true_generator():
-        obs = env.reset()
+        obs, _ = env.reset()
         done = False
         ep_len = 0
         while True:

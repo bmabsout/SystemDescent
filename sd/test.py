@@ -1,5 +1,5 @@
 import sd.envs
-import gym
+import gymnasium as gym
 import numpy as np
 import tensorflow as tf
 from tensorflow import keras
@@ -68,7 +68,7 @@ if __name__ == "__main__":
     env_name = utils.extract_env_name(checkpoint_path)
 
     env = gym.make('Modeled' + env_name,
-        model_path=checkpoint_path)#, test=True, gui=True)
+        model_path=checkpoint_path, render_mode="human")#, test=True, gui=True)
 
     dynamics = keras.models.load_model(checkpoint_path)
 
@@ -93,18 +93,15 @@ if __name__ == "__main__":
         lyapunov = None
 
 
-    orig_env = gym.make(env_name)
-    seed = args.seed
+    orig_env = gym.make(env_name, render_mode="human")
     # seed = 632732 #bottom almost
     # seed = 154911 # almost rotate
     # seed = 47039 # almost rotate, then rotate
     # seed = 364366 # rotate
-    print("seed:", seed)
-    env.seed(seed)
-    orig_env.seed(seed)
-    env_obs = env.reset()
+    print("seed:", args.seed)
+    env_obs, _ = env.reset(seed=args.seed)
     # env_obs = env.env.init_with_state(np.array([0.9474508 , 0.31990144, 1.06079]))
-    orig_env_obs = orig_env.reset()
+    orig_env_obs, _ = orig_env.reset(seed=args.seed)
     def feed_obs(obs):
         return {"state": np.array([obs]), "setpoint": np.array([set_point])}
 
@@ -116,8 +113,8 @@ if __name__ == "__main__":
         if lyapunov:
             print("lyapunov", lyapunov(feed_obs(env_obs)))
         orig_act = actor(feed_obs(orig_env_obs), training=False)
-        env_obs, env_reward, env_done, env_info = env.step(act)
-        orig_env_obs, orig_env_reward, orig_env_done, orig_env_info = orig_env.step(orig_act)
+        env_obs, env_reward, env_done, env_term, env_info = env.step(act)
+        orig_env_obs, orig_env_reward, orig_env_done, orig_env_term, orig_env_info = orig_env.step(orig_act)
         print("error", np.mean(np.abs(env_obs-orig_env_obs)))
         env.render()
         orig_env.render()
