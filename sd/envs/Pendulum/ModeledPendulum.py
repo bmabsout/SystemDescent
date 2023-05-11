@@ -196,7 +196,7 @@ class ModeledPendulumEnv(ModelableEnv):
             return
 
         try:
-            import pygame
+            import pygame._sdl2 as pygame
             from pygame import gfxdraw
         except ImportError as e:
             raise DependencyNotInstalled(

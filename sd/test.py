@@ -67,15 +67,15 @@ if __name__ == "__main__":
 
     env_name = utils.extract_env_name(checkpoint_path)
 
-    env = gym.make('Modeled' + env_name,
+    modeled_env = gym.make('Modeled' + env_name,
         model_path=checkpoint_path, render_mode="human")#, test=True, gui=True)
 
     dynamics = keras.models.load_model(checkpoint_path)
 
     if args.random_actor:
-        actor = lambda x,**ignored: env.action_space.sample()
+        actor = lambda x,**ignored: modeled_env.action_space.sample()
     elif args.low_actor:
-        actor = lambda x,**ignored: env.action_space.low
+        actor = lambda x,**ignored: modeled_env.action_space.low
     else:
         try:
             actor = keras.models.load_model(checkpoint_path + "/actor_tf")
@@ -99,7 +99,7 @@ if __name__ == "__main__":
     # seed = 47039 # almost rotate, then rotate
     # seed = 364366 # rotate
     print("seed:", args.seed)
-    env_obs, _ = env.reset(seed=args.seed)
+    env_obs, _ = modeled_env.reset(seed=args.seed)
     # env_obs = env.env.init_with_state(np.array([0.9474508 , 0.31990144, 1.06079]))
     orig_env_obs, _ = orig_env.reset(seed=args.seed)
     def feed_obs(obs):
@@ -113,8 +113,8 @@ if __name__ == "__main__":
         if lyapunov:
             print("lyapunov", lyapunov(feed_obs(env_obs)))
         orig_act = actor(feed_obs(orig_env_obs), training=False)
-        env_obs, env_reward, env_done, env_term, env_info = env.step(act)
+        env_obs, env_reward, env_done, env_term, env_info = modeled_env.step(act)
         orig_env_obs, orig_env_reward, orig_env_done, orig_env_term, orig_env_info = orig_env.step(orig_act)
         print("error", np.mean(np.abs(env_obs-orig_env_obs)))
-        env.render()
-        orig_env.render()
+        # modeled_env.render()
+        # orig_env.render()
