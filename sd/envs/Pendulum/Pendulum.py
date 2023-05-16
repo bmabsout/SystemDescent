@@ -179,7 +179,6 @@ class PendulumEnv(ModelableEnv):
             return
 
         try:
-            from pygame._sdl2 import Window, Renderer
             import pygame
             from pygame import gfxdraw
         except ImportError as e:
@@ -191,10 +190,8 @@ class PendulumEnv(ModelableEnv):
             pygame.init()
             if self.render_mode == "human":
                 pygame.display.init()
-                win = Window("window", resizable=True)
-                renderer = Renderer(win)
                 self.screen = pygame.display.set_mode(
-                    (self.screen_dim, self.screen_dim)
+                    (self.screen_dim * 2, self.screen_dim)
                 )
             else:  # mode in "rgb_array"
                 self.screen = pygame.Surface((self.screen_dim, self.screen_dim))
@@ -258,7 +255,7 @@ class PendulumEnv(ModelableEnv):
         gfxdraw.filled_circle(self.surf, offset, offset, int(0.05 * scale), (0, 0, 0))
 
         self.surf = pygame.transform.flip(self.surf, False, True)
-        self.screen.blit(self.surf, (0, 0))
+        self.screen.blit(self.surf, (self.screen_dim, 0))
         if self.render_mode == "human":
             pygame.event.pump()
             self.clock.tick(self.metadata["render_fps"])

@@ -115,6 +115,9 @@ if __name__ == "__main__":
         orig_act = actor(feed_obs(orig_env_obs), training=False)
         env_obs, env_reward, env_done, env_term, env_info = modeled_env.step(act)
         orig_env_obs, orig_env_reward, orig_env_done, orig_env_term, orig_env_info = orig_env.step(orig_act)
-        print("error", np.mean(np.abs(env_obs-orig_env_obs)))
-        # modeled_env.render()
-        # orig_env.render()
+        
+        # the render function responsible for initializing the window
+        # the orig_env.render() would override the window config since they all use pygame
+        # modify the orig_env.render() to change window settings.
+        modeled_env.render()
+        orig_env.render()
