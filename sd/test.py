@@ -9,6 +9,7 @@ matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 from . import utils 
 import argparse
+import pygame
 
 def plot_lyapunov(lyapunov, actor, dynamics, set_point):
     pts = 200
@@ -64,11 +65,16 @@ if __name__ == "__main__":
         print("there are no trained models")
         exit()
 
-
+    pygame.init()
+    pygame.display.init()
+    window = pygame.display.set_mode((500*2, 500))
+    pygame.display.set_caption("test")
+    surface1 = pygame.Surface((500, 500))
+    surface2 = pygame.Surface((500, 500))
     env_name = utils.extract_env_name(checkpoint_path)
 
     modeled_env = gym.make('Modeled' + env_name,
-        model_path=checkpoint_path, render_mode="human")#, test=True, gui=True)
+        model_path=checkpoint_path, render_mode="human", screen=surface1)#, test=True, gui=True)
 
     dynamics = keras.models.load_model(checkpoint_path)
 
@@ -93,7 +99,7 @@ if __name__ == "__main__":
         lyapunov = None
 
 
-    orig_env = gym.make(env_name, render_mode="human")
+    orig_env = gym.make(env_name, render_mode="human", screen=surface2)
     # seed = 632732 #bottom almost
     # seed = 154911 # almost rotate
     # seed = 47039 # almost rotate, then rotate
@@ -106,6 +112,7 @@ if __name__ == "__main__":
         return {"state": np.array([obs]), "setpoint": np.array([set_point])}
 
     for i in range(20000):
+        window.blits(((surface1, (0, 0)), (surface2, (500, 0))))
         # random_act = np.random.uniform(2,size=(1,))
         act = actor(feed_obs(env_obs), training=False)
         # print(orig_env_obs)
@@ -119,5 +126,5 @@ if __name__ == "__main__":
         # the render function responsible for initializing the window
         # the orig_env.render() would override the window config since they all use pygame
         # modify the orig_env.render() to change window settings.
-        modeled_env.render()
-        orig_env.render()
+        # if i % 10 == 0:
+
