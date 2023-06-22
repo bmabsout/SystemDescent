@@ -2,6 +2,7 @@ from tensorflow import keras
 from tensorflow.keras import layers
 import tensorflow as tf
 import math
+import pickle
 import numpy as np
 import os
 import uuid
@@ -30,11 +31,18 @@ def random_subdir(location):
     folder_path.mkdir(parents=True, exist_ok=True)
     return folder_path
 
-def save_checkpoint(path, model, id):
+def save_checkpoint(path, model, id, extra_objs=None):
     checkpoint_path = Path(path, "checkpoints", f"checkpoint{id}")
     checkpoint_path.mkdir(parents=True, exist_ok=True)
     print("saving: ", str(checkpoint_path))
     model.save(str(checkpoint_path))
+    with open(str(checkpoint_path)+"/extra_objs.pb", "wb") as f:
+        pickle.dump(extra_objs, f)
+
+def load_checkpoint(path):
+    custom_objects= pickle.load(open(path+"/extra_objs.pb", "rb"))
+    return keras.models.load_model(path, custom_objects={"SaveMe":custom_objects})
+    
 
 def latest_model():
     latest_env = latest_subdir("models")

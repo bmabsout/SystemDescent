@@ -292,7 +292,7 @@ def system_identify(env_name: str,
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--env_name', type=str, help="gym environment", default="Pendulum-v1")
+    parser.add_argument('--env_name', type=str, help="gym environment", default="Pendulum-v2")
     parser.add_argument('--save_freq', type=int, default=15)
     parser.add_argument('--learning_rate', type=float, default=1e-4)
     parser.add_argument('--episode_size', type=int, default=200)

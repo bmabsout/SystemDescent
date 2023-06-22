@@ -108,7 +108,10 @@ if __name__ == "__main__":
     env_obs, _ = modeled_env.reset(seed=args.seed)
     # env_obs = env.env.init_with_state(np.array([0.9474508 , 0.31990144, 1.06079]))
     orig_env_obs, _ = orig_env.reset(seed=args.seed)
+    
     def feed_obs(obs):
+        print("state_shape", np.array([obs]).shape)
+        print("setpoint_shape", np.array([set_point]).shape)
         return {"state": np.array([obs]), "setpoint": np.array([set_point])}
 
     for i in range(20000):
@@ -122,7 +125,8 @@ if __name__ == "__main__":
         orig_act = actor(feed_obs(orig_env_obs), training=False)
         env_obs, env_reward, env_done, env_term, env_info = modeled_env.step(act)
         orig_env_obs, orig_env_reward, orig_env_done, orig_env_term, orig_env_info = orig_env.step(orig_act)
-        
+        print("orig_env_obs", orig_env_obs)
+        print("env_obs", env_obs)    
         # the render function responsible for initializing the window
         # the orig_env.render() would override the window config since they all use pygame
         # modify the orig_env.render() to change window settings.

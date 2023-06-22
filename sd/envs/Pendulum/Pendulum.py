@@ -1,4 +1,4 @@
-__credits__ = ["Carlos Luis"]
+__credits__ = ["Carlos Luis", "Weifan Chen"]
 
 from os import path
 from typing import Optional
@@ -80,7 +80,7 @@ class PendulumEnv(ModelableEnv):
 
     ```python
     import gymnasium as gym
-    gym.make('Pendulum-v1', g=9.81)
+    gym.make('Pendulum-v2', g=9.81)
     ```
 
     On reset, the `options` parameter allows the user to change the bounds used to determine
