@@ -43,17 +43,18 @@ def actor_def(state_shape, action_shape):
 	model.summary()
 	return model
 
-def generate_dataset(env):
+def generate_dataset(env: gym.Env):
 	def gen_sample():
+		"""Generates a sample from the environment but assumes that the environment is a pendulum"""
 		while True:
-			obs = env.reset()
+			obs, _ = env.reset()
 			obs[2] = obs[2]*7.0
 			init_state = np.random.uniform(-np.pi, np.pi)
-			angle = np.where(np.abs(np.cos(init_state)) < 0.7, 0.0, init_state)
+			#angle = np.where(np.abs(np.cos(init_state)) < 0.7, 0.0, init_state) # randomize setpoints
 			# chooses only non-sideways angles
 
-			yield {"state":obs, "setpoint": [np.cos(angle), np.sin(angle), 0.0]}
-			# yield {"state": obs, "setpoint":[1.0, 0.0, 0.0]}
+			#yield {"state":obs, "setpoint": [np.cos(angle), np.sin(angle), 0.0]}
+			yield {"state": obs, "setpoint":[1.0, 0.0, 0.0]}
 	return gen_sample
 
 def save_model(model, name):
@@ -121,13 +122,13 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 			{
 			"close_angles": p_mean(as_all, 3.0),
 			# "close_angle": smooth_constraint(close_angle,0.65, 0.73),
-			# "lyapunov": Constraints(0.0, {
-			# 	"proof_of_performance": proof_of_performance,
-			# 	# "avg_large": tf.minimum(p_mean(Vx, -2.0)*1.5, 1.0),
-			# 	# "zero": zero,
-			# # 	# "actor_reg": tf.minimum(transform(actor_reg, 0.0, 1.0, 0.0, 1.1), 1.0),
-			# # 	# "lyapunov_reg": tf.minimum(transform(lyapunov_reg, 0.0, 1.0, 0.0, 1.1), 1.0),
-			# })
+			"lyapunov": Constraints(0.0, {
+				"proof_of_performance": proof_of_performance,
+				"avg_large": tf.minimum(p_mean(Vx, -2.0)*1.5, 1.0),
+				"zero": zero,
+			# 	# "actor_reg": tf.minimum(transform(actor_reg, 0.0, 1.0, 0.0, 1.1), 1.0),
+			# 	# "lyapunov_reg": tf.minimum(transform(lyapunov_reg, 0.0, 1.0, 0.0, 1.1), 1.0),
+			})
 		})
 
 		return dfl
@@ -168,25 +169,29 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 	
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
-	parser.add_argument("--ckpt_path",type=str,default=utils.latest_model())
+	parser.add_argument("--ckpt_path",type=str,default=None)
 	parser.add_argument("--num_batches",type=int,default=200)
 	parser.add_argument("--epochs",type=int,default=100)
 	parser.add_argument("--batch_size", type=int,default=64)
 	parser.add_argument("--lr",type=float, default=5e-4)
 	parser.add_argument("--load_saved", action="store_true")
 	args = parser.parse_args()
+	if args.ckpt_path is None:
+		args.ckpt_path = utils.latest_model()
 
 	env_name = utils.extract_env_name(args.ckpt_path)
+	print("env_name:", env_name)
 	env = gym.make(env_name)
 
 	action_shape = env.action_space.shape
 	state_shape = env.observation_space.shape
 
-	dynamics_model = keras.models.load_model(args.ckpt_path)
+	dynamics_model = utils.load_checkpoint(args.ckpt_path)
 	print()
 	print()
 	print("dynamics_model:")
 	dynamics_model.summary()
+	
 	actor = (
 			keras.models.load_model(args.ckpt_path + "/actor_tf")
 		if args.load_saved else

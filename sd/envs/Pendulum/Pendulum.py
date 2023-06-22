@@ -1,4 +1,4 @@
-__credits__ = ["Carlos Luis"]
+__credits__ = ["Carlos Luis", "Weifan Chen"]
 
 from os import path
 from typing import Optional
@@ -80,7 +80,7 @@ class PendulumEnv(ModelableEnv):
 
     ```python
     import gymnasium as gym
-    gym.make('Pendulum-v1', g=9.81)
+    gym.make('Pendulum-v2', g=9.81)
     ```
 
     On reset, the `options` parameter allows the user to change the bounds used to determine
@@ -98,7 +98,7 @@ class PendulumEnv(ModelableEnv):
         "render_fps": 30,
     }
 
-    def __init__(self, render_mode: Optional[str] = None, g=10.0):
+    def __init__(self, render_mode: Optional[str] = None, g=10.0, screen=None):
         self.max_speed = 8
         self.max_torque = 2.0
         self.dt = 0.05
@@ -109,7 +109,7 @@ class PendulumEnv(ModelableEnv):
         self.render_mode = render_mode
 
         self.screen_dim = 500
-        self.screen = None
+        self.screen = screen
         self.clock = None
         self.isopen = True
 
@@ -134,6 +134,8 @@ class PendulumEnv(ModelableEnv):
         self.last_u = u  # for rendering
         costs = angle_normalize(th) ** 2 + 0.1 * thdot**2 + 0.001 * (u**2)
 
+        # This is the integrated dynamics of the pendulum in physics. 
+        # we need to write a tensorflow version of this
         newthdot = thdot + (3 * g / (2 * l) * np.sin(th) + 3.0 / (m * l**2) * u) * dt
         newthdot = np.clip(newthdot, -self.max_speed, self.max_speed)
         newth = th + newthdot * dt
@@ -255,7 +257,7 @@ class PendulumEnv(ModelableEnv):
         gfxdraw.filled_circle(self.surf, offset, offset, int(0.05 * scale), (0, 0, 0))
 
         self.surf = pygame.transform.flip(self.surf, False, True)
-        self.screen.blit(self.surf, (self.screen_dim, 0))
+        self.screen.blit(self.surf, (0, 0))
         if self.render_mode == "human":
             pygame.event.pump()
             self.clock.tick(self.metadata["render_fps"])

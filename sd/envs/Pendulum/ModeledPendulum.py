@@ -81,7 +81,7 @@ class ModeledPendulumEnv(ModelableEnv):
 
     ```python
     import gymnasium as gym
-    gym.make('Pendulum-v1', g=9.81)
+    gym.make('Pendulum-v2', g=9.81)
     ```
 
     On reset, the `options` parameter allows the user to change the bounds used to determine
@@ -99,7 +99,7 @@ class ModeledPendulumEnv(ModelableEnv):
         "render_fps": 30,
     }
 
-    def __init__(self, model_path: str, render_mode: Optional[str] = None, g=10.0):
+    def __init__(self, model_path: str, render_mode: Optional[str] = None, g=10.0, screen=None):
         self.max_speed = 8
         self.max_torque = 2.0
         self.dt = 0.05
@@ -110,7 +110,7 @@ class ModeledPendulumEnv(ModelableEnv):
         self.render_mode = render_mode
 
         self.screen_dim = 500
-        self.screen = None
+        self.screen = screen
         self.clock = None
         self.isopen = True
 
@@ -127,6 +127,7 @@ class ModeledPendulumEnv(ModelableEnv):
         def run_nn(obs, action):
             latent_shape = self.model.input["latent"].shape
             latent = np.array([[]]) if latent_shape[1] == 0 else np.random.normal(latent_shape[1:])
+            print("model output", self.model({"state": np.array([obs]), "action": np.array([action]), "latent": latent}, training=False))
             return self.model({"state": np.array([obs]), "action": np.array([action]), "latent": latent}, training=False)[0]
 
         print("predicted:", run_nn(np.array([0,1,2]), np.array(0)))
@@ -154,7 +155,10 @@ class ModeledPendulumEnv(ModelableEnv):
         # print(self.obs)
         # if self.step_count % 2 == 0:
         self.obs = nn_res
+        self.state = self.obs_to_state(self.obs)
         # self.obs[2] = np.clip(self.obs[2], -self.max_speed, self.max_speed)
+        if self.render_mode == "human":
+            self.render()
         return self.obs, rew/200, False, False, {}
 
     def obs_to_state(self, obs):

@@ -2,13 +2,13 @@ from gymnasium.envs.registration import register
 
 
 register(
-    id='Pendulum-v1',
+    id='Pendulum-v2',
     entry_point='sd.envs.Pendulum.Pendulum:PendulumEnv',
     max_episode_steps=200,
 )
 
 register(
-    id='ModeledPendulum-v1',
+    id='ModeledPendulum-v2',
     entry_point='sd.envs.Pendulum.ModeledPendulum:ModeledPendulumEnv',
     max_episode_steps=200,
 )
