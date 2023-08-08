@@ -9,14 +9,18 @@ def pendulum_difference_eq(states, actions):
     g = 10.0
     m = 1.0
     l = 1.0
+    max_torque = 2.0
     dt = 0.05
+    u = tf.clip_by_value(actions, -max_torque, max_torque)
     max_speed = 8
     cos_th, sin_th, thdot = tf.reshape(states[:, 0], (-1, 1)), tf.reshape(states[:, 1], (-1, 1)), tf.reshape(states[:, 2], (-1, 1))
-    newthdot = thdot + (3 * g / (2 * l) * sin_th + 3.0 / (m * l**2) * actions) * dt
-    newthdot = tf.clip_by_value(newthdot, max_speed, max_speed)
+    
+    newthdot = thdot + (3 * g / (2 * l) * sin_th + 3.0 / (m * l**2) * u) * dt
+    newthdot = tf.clip_by_value(newthdot, -max_speed, max_speed)    
     th = tf.atan2(sin_th, cos_th)
-    newth = thdot * dt + th
+    newth = newthdot * dt + th
     new_state = tf.stack([tf.cos(newth), tf.sin(newth), newthdot], axis=1)
+
     return tf.squeeze(new_state, [-1])
 
 

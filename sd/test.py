@@ -12,18 +12,15 @@ import argparse
 import pygame
 
 def plot_lyapunov(lyapunov, actor, dynamics, set_point):
-    pts = 200
+    pts = 200*10
     theta = np.linspace(-np.pi, np.pi, pts).reshape(-1,1)
     theta_dot = np.linspace(-7.0, 7.0,pts).reshape(-1,1)
 
     thetav, theta_dotv = np.meshgrid(theta, theta_dot)
     inputs = np.array([np.cos(thetav), np.sin(thetav), theta_dotv]).T.reshape(-1,3)
     set_points = inputs*0 + set_point
-    print(inputs.shape)
-    print(set_points.shape)
     z = lyapunov({"state": inputs, "setpoint": set_points}, training=False)
     acts = actor({"state":inputs, "setpoint": set_points}, training=False)
-    print(actor([inputs, set_points]).shape)
     after = dynamics({"state": inputs, "action": acts, "latent": np.random.normal(size=(inputs.shape[0],)+dynamics.input["latent"].shape[1:])}, training=False)
     next_z = lyapunov({"state": after, "setpoint": set_points}, training=False)
     after = after.numpy().reshape(pts,pts,3)
@@ -43,6 +40,7 @@ def plot_lyapunov(lyapunov, actor, dynamics, set_point):
 
     # plt.pcolormesh(thetav, theta_dotv, acts.T[0][:-1, :-1])
     # plt.colorbar()
+    plt.savefig('lyapunov.png')
     plt.show()
 
 
@@ -81,7 +79,7 @@ if __name__ == "__main__":
     if args.random_actor:
         actor = lambda x,**ignored: modeled_env.action_space.sample()
     elif args.low_actor:
-        actor = lambda x,**ignored: modeled_env.action_space.low
+        actor = lambda x,**ignored: np.array([0])
     else:
         try:
             actor = keras.models.load_model(checkpoint_path + "/actor_tf")
@@ -110,8 +108,8 @@ if __name__ == "__main__":
     orig_env_obs, _ = orig_env.reset(seed=args.seed)
     
     def feed_obs(obs):
-        print("state_shape", np.array([obs]).shape)
-        print("setpoint_shape", np.array([set_point]).shape)
+        #print("state_shape", np.array([obs]).shape)
+        #print("setpoint_shape", np.array([set_point]).shape)
         return {"state": np.array([obs]), "setpoint": np.array([set_point])}
 
     for i in range(20000):
@@ -125,8 +123,8 @@ if __name__ == "__main__":
         orig_act = actor(feed_obs(orig_env_obs), training=False)
         env_obs, env_reward, env_done, env_term, env_info = modeled_env.step(act)
         orig_env_obs, orig_env_reward, orig_env_done, orig_env_term, orig_env_info = orig_env.step(orig_act)
-        print("orig_env_obs", orig_env_obs)
-        print("env_obs", env_obs)    
+        #print("orig_env_obs", orig_env_obs)
+        #print("env_obs", env_obs)    
         # the render function responsible for initializing the window
         # the orig_env.render() would override the window config since they all use pygame
         # modify the orig_env.render() to change window settings.

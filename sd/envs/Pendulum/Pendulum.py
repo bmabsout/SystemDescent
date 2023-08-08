@@ -193,7 +193,7 @@ class PendulumEnv(ModelableEnv):
             if self.render_mode == "human":
                 pygame.display.init()
                 self.screen = pygame.display.set_mode(
-                    (self.screen_dim * 2, self.screen_dim)
+                    (self.screen_dim, self.screen_dim)
                 )
             else:  # mode in "rgb_array"
                 self.screen = pygame.Surface((self.screen_dim, self.screen_dim))
