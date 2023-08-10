@@ -59,7 +59,7 @@ def generate_dataset(env: gym.Env):
 			# chooses only non-sideways angles
 
 			#yield {"state":obs, "setpoint": [np.cos(angle), np.sin(angle), 0.0]}
-			yield {"state": obs, "setpoint":[1.0, 0.0, 0.0]}
+			yield {"state": obs, "setpoint":[1.0, 0.0, 0.0]} # how this is correct?
 	return gen_sample
 
 def save_model(model, name):
@@ -96,7 +96,7 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 				, "latent": tf.random.normal(latent_shape)
 				}, training=True)  
 			states = states.write(i, current_states)
-		return current_states, tf.transpose(states.stack(), [1,0,2])
+		return current_states, tf.transpose(states.stack(), [1,0,2]) # ok, I think this operation is to put batch back to the first dimension
 
 	@tf.function
 	def batch_value(batch):
@@ -110,7 +110,8 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 
 		'''
 		maxRepetitions = 15
-		repetitions = tf.random.uniform(shape=[], minval=10, maxval=maxRepetitions+1, dtype=tf.dtypes.int32)
+		#repetitions = tf.random.uniform(shape=[], minval=10, maxval=maxRepetitions+1, dtype=tf.dtypes.int32)
+		repetitions = tf.random.uniform(shape=[], minval=1, maxval=maxRepetitions+1, dtype=tf.dtypes.int32) # whether small minval can shrink the local minimal
 		prev_states = batch["state"]
 		set_points = batch["setpoint"]
 
@@ -124,12 +125,33 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 		# the Lyapunov value at the final state after the update steps
 		V_fxu = V({"state": fxu, "setpoint": set_points}, training=True)
 
+		# rational: repetition is necessary for the controller to solve the problem
+		# however, the Lyaupnov value should decrease along each every step. The long gap would permit the Lyapunov function 
+		# to learn some local minimum
+		#V_fxu = V({"state": states[:,0,:], "setpoint": set_points}, training=True)
+
 		# the Lyapunov value at the setpoint(origin) should be zero
 		# thus a fully trained V(setpoint) should return zero. Thus zero == 1 when sufficiently trained
 		zero = p_mean(1.0-V({"state": set_points, "setpoint": set_points}), 0) 
 		
 		# for condition: V shall decrease along time (i.e. along the update steps)
-		diff = (Vx - V_fxu)
+		# diff = (Vx - V_fxu)
+
+		# another way to define diff: only penalize the negative delta
+		diff = tf.zeros_like(Vx)
+		prev_V = Vx
+		for i in tf.range(repetitions):
+			next_V = V({"state": states[:,i,:], "setpoint": set_points}, training=True)
+			#diff += tf.nn.leaky_relu(prev_V - next_V, alpha=10**4) / 100
+			norm_diff = (prev_V - next_V + 1)/2.0
+			
+			#diff *= norm_diff**(1.0/repetitions)
+			
+			# second choice
+			diff += (1 - norm_diff)**2 
+			prev_V = next_V
+		# second choice 
+		diff = 1 - diff**0.5
 
 		# some reshaping
 		transposed_states = tf.transpose(states, [2,0,1])
@@ -146,7 +168,7 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 		actor_reg = 1 - tf.tanh(tf.reduce_mean(actor.losses))
 		lyapunov_reg = 1 - tf.tanh(tf.reduce_mean(V.losses))
 
-		# what's this?
+		# what's this? 
 		avg_large = tf.minimum(transform(p_mean(Vx,-1.0, slack=1e-15), 0.0, 0.4, 0.0, 1.0), 1.0)
 
 		# if near the setpoint, decrease slower. otherwise decrease faster. This shapes the Lyapunov function. 
@@ -161,10 +183,11 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 			"close_angles": p_mean(as_all, 2.0),
 			# "close_angle": smooth_constraint(close_angle,0.65, 0.73),
 			"lyapunov": Constraints(0.0, {
-				# "proof_of_performance": proof_of_performance,
+				"proof_of_performance": proof_of_performance,
 				"avg_large": tf.minimum(p_mean(Vx, 0.0)*1.5, 1.0),
 				"zero": zero,
-				"diff": p_mean(diff/2.0 + 0.5, -1.0),
+				# "diff": p_mean(diff, -1),
+				# "diff": p_mean(diff/2.0 + 0.5, -1.0),
 				# "actor_reg": tf.minimum(transform(actor_reg, 0.0, 1.0, 0.0, 1.1), 1.0),
 			# 	# "lyapunov_reg": tf.minimum(transform(lyapunov_reg, 0.0, 1.0, 0.0, 1.1), 1.0),
 			})
@@ -214,8 +237,8 @@ if __name__ == "__main__":
 	parser.add_argument("--num_batches",type=int,default=200)
 	parser.add_argument("--save_freq",type=int,default=15, help="save the checkpoints every n seconds")
 	parser.add_argument("--epochs",type=int,default=100)
-	parser.add_argument("--batch_size", type=int,default=64)
-	parser.add_argument("--lr",type=float, default=5e-4)
+	parser.add_argument("--batch_size", type=int,default=256)
+	parser.add_argument("--lr",type=float, default=1e-3)
 	parser.add_argument("--load_saved", action="store_true")
 	args = parser.parse_args()
 	if args.ckpt_path is None:

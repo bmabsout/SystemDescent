@@ -4,8 +4,10 @@ import numpy as np
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
+# import matplotlib
+# matplotlib.use('TkAgg')
 import matplotlib
-matplotlib.use('TkAgg')
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from . import utils 
 import argparse
@@ -41,7 +43,7 @@ def plot_lyapunov(lyapunov, actor, dynamics, set_point):
     # plt.pcolormesh(thetav, theta_dotv, acts.T[0][:-1, :-1])
     # plt.colorbar()
     plt.savefig('lyapunov.png')
-    plt.show()
+    #plt.show()
 
 
     # plt.pcolormesh(thetav, theta_dotv, (next_z - z).T[0][:-1,:-1])
