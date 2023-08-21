@@ -1,98 +1,68 @@
 {
-
-  description = "A reproducible environment for learning certifiable controllers";
-
   inputs = {
-    flake-utils.url = "github:numtide/flake-utils";
-    nixpkgs.url = "nixpkgs/02336c5c5f719cd6bd4cfc5a091a1ccee6f06b1d";
-    mach-nix.url = github:DavHau/mach-nix;
-    nixGL.url = github:guibou/nixGL;
-    nixGL.flake = false;
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    # mach-nix.url = "github:DavHau/mach-nix/master";
+    # mach-nix.inputs.nixpkgs.follows = "nixpkgs";
+    # mach-nix.inputs.pypi-deps-db.follows = "pypi-deps-db";
+    # pypi-deps-db.url = "github:DavHau/pypi-deps-db";
+    nixgl.url = "github:guibou/nixGL";
+    nixgl.inputs.nixpkgs.follows = "nixpkgs";
+    flake-compat = {
+      url = "github:edolstra/flake-compat";
+      flake = false;
+    };
   };
 
-  outputs = inputs:
-    inputs.flake-utils.lib.eachDefaultSystem (system:
-      let pkgs = (import (inputs.nixpkgs) { config = {allowUnfree = true;}; system =
-              "x86_64-linux";
-                  });
-                  
-          extensions = (with pkgs.vscode-extensions; [
-            ms-python.python
-            ms-python.vscode-pylance
-            ms-toolsai.jupyter
-            jnoortheen.nix-ide
-          ]);
-
-          mach-nix-utils = import inputs.mach-nix {
-            inherit pkgs;
-            python = "python39Full";
-            #pypiDataRev = "e18f4c312ce4bcdd20a7b9e861b3c5eb7cac22c4";
-            #pypiDataSha256= "sha256-DmrRc4Y0GbxlORsmIDhj8gtmW1iO8/44bShAyvz6bHk=";
-          };
-
-          vscodium-with-extensions = pkgs.vscode-with-extensions.override {
-            vscode = pkgs.vscodium.fhs;
-            # vscodeExtensions = extensions;
-          };
-          
-          python-with-deps = mach-nix-utils.mkPython {
-            _.box2d-py = { nativeBuildInputs.add = with pkgs; [ swig ]; }; 
-          providers = {
-                    pyglet="nixpkgs";
-                    gym="nixpkgs";
-                    pygame="nixpkgs";
-                    pybullet="nixpkgs";
-                    tkinter="nixpkgs";
-          };
-
-            requirements=''
-              numpy
-              tk
-              matplotlib
-              future
-              mpi4py
-              psutil
-              tf_agents[reverb]
-              tensorflow
-              scipy
-              gym
-              tqdm
-              mypy
-              box2d-py
-              noise
-              pygame
-              pyglet
-              pybullet
-              joblib
-              pyquaternion
-              pylint
-              cpprb
-              tensorflow-probability
-              tensorflow-addons
-              #GitPython>=3.1.17
-            '';
-            packagesExtra=[
+  outputs = {self, nixpkgs, nixgl, ... }@inp:
+    let
+      l = nixpkgs.lib // builtins;
+      supportedSystems = [ "x86_64-linux" "aarch64-darwin" ];
+      forAllSystems = f: l.genAttrs supportedSystems
+        (system: f system (import nixpkgs {inherit system;
+        overlays=[nixgl.overlay]; config.allowUnfree=true; config.cudaSupport =
+          true; config.cudaCapabilities = [ "8.6" ];}));
+      
+    in
+    {
+      # enter this python environment by executing `nix shell .`
+      devShell = forAllSystems (system: pkgs:
+        let
+            pybox2d = pkgs.python3.pkgs.buildPythonPackage rec {
+                pname = "Box2D";
+                version = "2.3.10";
+              
+                src = pkgs.fetchFromGitHub {
+                    owner = "pybox2d";
+                    repo = "pybox2d";
+                    rev = "master";
+                    sha256 = "a4JjUrsSbAv9SjqZLwuqXhz2x2YhRzZZTytu4X5YWX8=";
+                };
+                nativeBuildInputs = [ pkgs.pkgconfig pkgs.swig ];
+                doCheck = false;
+                format="setuptools";
+              };
+            python = pkgs.python3.withPackages (p: with p;[numpy pygame pybullet
+              matplotlib gymnasium tensorflow tqdm keras pybox2d ]);
+            sd = pkgs.python3.pkgs.buildPythonPackage rec {
+                pname = "sd";
+                version = "0.1.0";
+              
+                src = ./.;
+                doCheck = false;
+                #format = "setuputils";
+              
+                propagatedBuildInputs = [
+                  python
+                ];
+              };
+            
+        in pkgs.mkShell {
+            buildInputs = [
+                pkgs.nixgl.auto.nixGLDefault
+                (pkgs.python3.withPackages (p: with p;[numpy pygame pybullet
+                matplotlib gymnasium tensorflow keras tqdm sd pybox2d mypy]))
             ];
-          };
-
-        nixGLIntelScript = pkgs.writeShellScriptBin "nixGLIntel" ''
-          $(NIX_PATH=nixpkgs=${inputs.nixpkgs} nix-build ${inputs.nixGL} -A nixGLIntel --no-out-link)/bin/* "$@"
-        '';
-        nixGLNvidiaScript = pkgs.writeShellScriptBin "nixGLNvidia" ''
-          $(NIX_PATH=nixpkgs=${inputs.nixpkgs} nix-build ${inputs.nixGL} -A auto.nixGLNvidia --no-out-link)/bin/* "$@"
-        '';
-      in {
-        devShell = pkgs.mkShell {
-          buildInputs=[
-            vscodium-with-extensions
-            pkgs.vscode-fhs
-            pkgs.python39Packages.pip
-            pkgs.python39Packages.virtualenv
-            python-with-deps
-            nixGLIntelScript
-            nixGLNvidiaScript
-          ];
-        };
-      }
-    );
+          }
+        );
+    };
 }
