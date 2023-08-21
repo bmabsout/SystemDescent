@@ -59,7 +59,10 @@ def generate_dataset(env: gym.Env):
 			# chooses only non-sideways angles
 
 			#yield {"state":obs, "setpoint": [np.cos(angle), np.sin(angle), 0.0]}
-			yield {"state": obs, "setpoint":[1.0, 0.0, 0.0]} # how this is correct?
+			# yield {"state": obs, "setpoint":[1.0, 0.0, 0.0]} 
+
+			# yield random setpoint. upright or downright
+			yield {"state": obs, "setpoint":[1.0, 0.0, 0.0]} if np.random.randint(2) == 1 else {"state": obs, "setpoint":[-1.0,0.0,0.0]}
 	return gen_sample
 
 def save_model(model, name):
@@ -176,7 +179,12 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 		maxRepetitionsf = tf.cast(maxRepetitions, tf.dtypes.float32)
 		line = tf.math.tanh(transform(repetitionsf, 0.05, 4.0*maxRepetitionsf*Vx**0.5+0.05, 0.0, 1.0))*Vx**0.5
 		decreases_everywhere = smooth_constraint(diff, 0.0, line)
+
+		# gain option I:
 		proof_of_performance = tf.squeeze(p_mean(decreases_everywhere, -1.0, slack=1e-13))
+
+		# gain option II:
+		proof_of_performance = 1 - tf.squeeze(p_mean(1 - decreases_everywhere, 2.0, slack=1e-13))
 
 		dfl = Constraints(0.0,
 			{

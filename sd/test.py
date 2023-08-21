@@ -13,7 +13,7 @@ from . import utils
 import argparse
 import pygame
 
-def plot_lyapunov(lyapunov, actor, dynamics, set_point):
+def plot_lyapunov(lyapunov, actor, dynamics, set_point, fname='lyapunov'):
     pts = 200*10
     theta = np.linspace(-np.pi, np.pi, pts).reshape(-1,1)
     theta_dot = np.linspace(-7.0, 7.0,pts).reshape(-1,1)
@@ -42,7 +42,7 @@ def plot_lyapunov(lyapunov, actor, dynamics, set_point):
 
     # plt.pcolormesh(thetav, theta_dotv, acts.T[0][:-1, :-1])
     # plt.colorbar()
-    plt.savefig('lyapunov.png')
+    plt.savefig(f'{fname}.png')
     #plt.show()
 
 
@@ -94,7 +94,11 @@ if __name__ == "__main__":
 
     try:
         lyapunov = keras.models.load_model(checkpoint_path + "/lyapunov_tf")
-        plot_lyapunov(lyapunov, actor, dynamics, set_point)
+        plot_lyapunov(lyapunov, actor, dynamics, set_point, fname = 'V_up')
+        
+        # add additional plot for downward setpoint
+        down_set_point = np.array([-1.0,0,0])
+        plot_lyapunov(lyapunov, actor, dynamics, down_set_point, fname = 'V_down')
     except:
         lyapunov = None
 
