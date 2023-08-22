@@ -164,7 +164,8 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 		# Q: what is this angular_similarity/close_angle mathematically?
 		# A: angles between 
 		as_all = angular_similarity(transposed_states, transposed_setpoints)
-		close_angle = p_mean(angular_similarity(tf.transpose(fxu)[0:2] ,tf.transpose(set_points)[0:2]), 4.) # 0:2 is for taking position only not the velocity
+		angular_similarities = angular_similarity(tf.transpose(fxu)[0:2] ,tf.transpose(set_points)[0:2])
+		close_angle = p_mean(angular_similarities, 4.) # 0:2 is for taking position only not the velocity
 
 		# for each sample in the batch, there is a loss for the actor. So the reduce_mean is to get the average loss for the batch?
 		# but is actor.loss best to be 0? in this case actor_reg is best to be 1
@@ -181,7 +182,7 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 		line = tf.math.tanh(repetitionsf*1.0/10.0)
 		decreases_everywhere = tf.where(diff < 0.0, (1.0 - diff)**4.0, tf.minimum(diff/line, 1.0)) 
 		# tf.minimum(transform(diff, -1.0, line, 0.0, 1.0), 1.0)**2.0
-
+		large_elsewhere = tf.minimum(p_mean(tf.where(angular_similarities > 0.99, 1.0, Vx), -1.0)*1.5, 1.0)
 		# gain option I:
 		# proof_of_performance = tf.squeeze(p_mean(decreases_everywhere, 0.0, slack=1e-13))
 
@@ -194,7 +195,8 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 			# "close_angle": smooth_constraint(close_angle,0.65, 0.73),
 			"lyapunov": Constraints(0.0, {
 				"proof_of_performance": proof_of_performance,
-				"avg_large": tf.minimum(p_mean(Vx, 0.0)*1.5, 1.0),
+				# "avg_large": tf.minimum(p_mean(Vx, 0.0)*1.5, 1.0),
+				"large_elsewhere": large_elsewhere,
 				"zero": zero,
 				# "diff": p_mean(diff, -1),
 				# "diff": p_mean(diff/2.0 + 0.5, -1.0),
@@ -247,8 +249,8 @@ if __name__ == "__main__":
 	parser.add_argument("--num_batches",type=int,default=200)
 	parser.add_argument("--save_freq",type=int,default=15, help="save the checkpoints every n seconds")
 	parser.add_argument("--epochs",type=int,default=100)
-	parser.add_argument("--batch_size", type=int,default=256)
-	parser.add_argument("--lr",type=float, default=1e-3)
+	parser.add_argument("--batch_size", type=int,default=128)
+	parser.add_argument("--lr",type=float, default=1e-2)
 	parser.add_argument("--load_saved", action="store_true")
 	args = parser.parse_args()
 	if args.ckpt_path is None:
