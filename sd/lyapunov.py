@@ -49,25 +49,26 @@ def generate_dataset(env: gym.Env):
 		while True:
 			obs, _ = env.reset()
 			obs[2] = obs[2]*7.0
-			init_state = np.random.uniform(-np.pi, np.pi)
 
 			# the randomization of the setpoint is to force V to be a collection of functions
 			# the each parameter (the setpoint) would corresponding to a classic Lyaupnov function
 			# in the drone setting, the parameter is the setpoint. 
 			# angle = np.where(np.abs(np.cos(init_state)) < 0.7, 0.0, init_state) # randomize setpoints
 
+			angle = np.random.uniform(-np.pi/4.0, np.pi/4.0) + np.random.randint(2)*np.pi
 			# chooses only non-sideways angles
 
-			#yield {"state":obs, "setpoint": [np.cos(angle), np.sin(angle), 0.0]}
+			yield {"state":obs, "setpoint": [np.cos(angle), np.sin(angle), 0.0]}
 			# yield {"state": obs, "setpoint":[1.0, 0.0, 0.0]} 
 
 			# yield random setpoint. upright or downright
-			yield {"state": obs, "setpoint":[1.0, 0.0, 0.0]} if np.random.randint(2) == 1 else {"state": obs, "setpoint":[-1.0,0.0,0.0]}
+			# yield {"state": obs, "setpoint":[1.0, 0.0, 0.0]} if np.random.randint(2) == 1 else {"state": obs, "setpoint":[-1.0,0.0,0.0]}
 	return gen_sample
 
 def save_model(model, name):
-	path = Path(args.ckpt_path, name)
-	path.mkdir(parents=True, exist_ok=True)
+	path = Path(args.ckpt_path.parent, name)
+	args.ckpt_path.parent.mkdir(parents=True, exist_ok=True)
+	
 	print(str(path))
 	model.save(str(path))
 
@@ -141,20 +142,20 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 		# diff = (Vx - V_fxu)
 
 		# another way to define diff: only penalize the negative delta
-		diff = tf.zeros_like(Vx)
-		prev_V = Vx
-		for i in tf.range(repetitions):
-			next_V = V({"state": states[:,i,:], "setpoint": set_points}, training=True)
-			#diff += tf.nn.leaky_relu(prev_V - next_V, alpha=10**4) / 100
-			norm_diff = (prev_V - next_V + 1)/2.0
+		diff = (Vx - V_fxu + 1)/2.0
+		# prev_V = Vx
+		# for i in tf.range(repetitions):
+		# 	next_V = V({"state": states[:,i,:], "setpoint": set_points}, training=True)
+		# 	#diff += tf.nn.leaky_relu(prev_V - next_V, alpha=10**4) / 100
+		# 	norm_diff = (prev_V - next_V + 1)/2.0
 			
-			#diff *= norm_diff**(1.0/repetitions)
+		# 	#diff *= norm_diff**(1.0/repetitions)
 			
-			# second choice
-			diff += (1 - norm_diff)**2 
-			prev_V = next_V
-		# second choice 
-		diff = 1 - diff**0.5
+		# 	# second choice
+		# 	diff += (1 - norm_diff)**2 
+		# 	prev_V = next_V
+		# # second choice 
+		# diff = 1 - diff**0.5
 
 		# some reshaping
 		transposed_states = tf.transpose(states, [2,0,1])
@@ -177,11 +178,12 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 		# if near the setpoint, decrease slower. otherwise decrease faster. This shapes the Lyapunov function. 
 		repetitionsf = tf.cast(repetitions, tf.dtypes.float32)
 		maxRepetitionsf = tf.cast(maxRepetitions, tf.dtypes.float32)
-		line = tf.math.tanh(transform(repetitionsf, 0.05, 4.0*maxRepetitionsf*Vx**0.5+0.05, 0.0, 1.0))*Vx**0.5
-		decreases_everywhere = smooth_constraint(diff, 0.0, line)
+		line = tf.math.tanh(repetitionsf*1.0/10.0)
+		decreases_everywhere = tf.where(diff < 0.0, (1.0 - diff)**4.0, tf.minimum(diff/line, 1.0)) 
+		# tf.minimum(transform(diff, -1.0, line, 0.0, 1.0), 1.0)**2.0
 
 		# gain option I:
-		proof_of_performance = tf.squeeze(p_mean(decreases_everywhere, -1.0, slack=1e-13))
+		# proof_of_performance = tf.squeeze(p_mean(decreases_everywhere, 0.0, slack=1e-13))
 
 		# gain option II:
 		proof_of_performance = 1 - tf.squeeze(p_mean(1 - decreases_everywhere, 2.0, slack=1e-13))
@@ -228,8 +230,8 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 		return scalar, dfl
 
 	def save_models(epoch):
-		save_model(actor, "actor_tf")
-		save_model(lyapunov_model, "lyapunov_tf")
+		save_model(actor, "actor.keras")
+		save_model(lyapunov_model, "lyapunov.keras")
 
 	def train_and_show(batch):
 		scalar, metrics = train_step(batch)
@@ -241,7 +243,7 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 	
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
-	parser.add_argument("--ckpt_path",type=str,default=None)
+	parser.add_argument("--ckpt_path",type=Path,default=None)
 	parser.add_argument("--num_batches",type=int,default=200)
 	parser.add_argument("--save_freq",type=int,default=15, help="save the checkpoints every n seconds")
 	parser.add_argument("--epochs",type=int,default=100)
@@ -258,7 +260,6 @@ if __name__ == "__main__":
 
 	action_shape = env.action_space.shape
 	state_shape = env.observation_space.shape
-
 	dynamics_model = utils.load_checkpoint(args.ckpt_path)
 	print()
 	print()
@@ -267,13 +268,13 @@ if __name__ == "__main__":
 	
 	# if --load_saved is not set, actor_def and V_def are used to define the actor and lyapunov model untrained
 	actor = (
-			keras.models.load_model(args.ckpt_path + "/actor_tf")
+			keras.models.load_model(args.ckpt_path.parent / "actor.keras")
 		if args.load_saved else
 			actor_def(state_shape, action_shape)
 	)
 
 	lyapunov_model = (
-			keras.models.load_model(args.ckpt_path + "/lyapunov_tf")
+			keras.models.load_model(args.ckpt_path.parent / "lyapunov.keras")
 		if args.load_saved else
 			V_def(state_shape)
 	)

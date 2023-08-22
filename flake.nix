@@ -42,7 +42,7 @@
                 format="setuptools";
               };
             python = pkgs.python3.withPackages (p: with p;[numpy pygame pybullet
-              matplotlib gymnasium tensorflow tqdm keras pybox2d ]);
+              matplotlib gymnasium tensorflow tqdm keras pybox2d dill ]);
             sd = pkgs.python3.pkgs.buildPythonPackage rec {
                 pname = "sd";
                 version = "0.1.0";
@@ -60,7 +60,7 @@
             buildInputs = [
                 pkgs.nixgl.auto.nixGLDefault
                 (pkgs.python3.withPackages (p: with p;[numpy pygame pybullet
-                matplotlib gymnasium tensorflow keras tqdm sd pybox2d mypy]))
+                matplotlib gymnasium tensorflow keras tqdm sd pybox2d mypy dill]))
             ];
           }
         );

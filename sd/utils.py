@@ -2,7 +2,7 @@ from tensorflow import keras
 from tensorflow.keras import layers
 import tensorflow as tf
 import math
-import pickle
+import dill as pickle
 import numpy as np
 import os
 import uuid
@@ -20,10 +20,10 @@ def map_dict_elems(fn, d):
 def to_numpy(tensor):
     return tf.make_ndarray(tf.make_tensor_proto(tensor))
 
-def latest_subdir(dir="."):
-    with_paths = map(lambda subdir: dir + "/" + subdir, os.listdir(dir))
+def latest_subdir(dir=Path(".")):
+    with_paths = map(lambda subdir: dir / Path(subdir), os.listdir(dir))
     sub_dirs = filter(os.path.isdir, with_paths)
-    return max(sub_dirs, key=os.path.getmtime)
+    return Path(max(sub_dirs, key=os.path.getmtime))
 
 def random_subdir(location):
     uniq_id = uuid.uuid1().__str__()[:6]
@@ -31,28 +31,33 @@ def random_subdir(location):
     folder_path.mkdir(parents=True, exist_ok=True)
     return folder_path
 
-def save_checkpoint(path, model, id, extra_objs=None):
-    checkpoint_path = Path(path, "checkpoints", f"checkpoint{id}")
+def save_checkpoint(path: Path, model, id, extra_objs={}):
+    checkpoint_path = path / "checkpoints" / f"checkpoint{id}"
     checkpoint_path.mkdir(parents=True, exist_ok=True)
-    print("saving: ", str(checkpoint_path))
-    model.save(str(checkpoint_path))
-    with open(str(checkpoint_path)+"/extra_objs.pb", "wb") as f:
+    model_path = checkpoint_path / "model.keras"
+    print("saving: ", model_path)
+    model.save(str(model_path))
+    with open(checkpoint_path / "extra_objs.pb", "wb") as f:
         pickle.dump(extra_objs, f)
 
-def load_checkpoint(path):
-    custom_objects= pickle.load(open(path+"/extra_objs.pb", "rb"))
-    return keras.models.load_model(path, custom_objects={"SaveMe":custom_objects})
+def load_checkpoint(path: Path):
+    custom_objects= pickle.load(open(path.parent / "extra_objs.pb", "rb"))
+    for key, val in custom_objects.items():
+        custom_objects[key] = tf.function(val)
+    # print(custom_objects)
+    # print(path)
+    return keras.models.load_model(path, custom_objects=custom_objects)
     
 
 def latest_model():
     latest_env = latest_subdir("models")
     latest_run = latest_subdir(latest_env)
-    latest_checkpoint = latest_subdir(latest_run + "/checkpoints")
+    latest_checkpoint = latest_subdir(latest_run / "checkpoints")
     print(f"using model {latest_checkpoint}")
-    return latest_checkpoint
+    return latest_checkpoint / "model.keras"
 
-def extract_env_name(checkpoint_path):
-    return Path(checkpoint_path).parent.parent.parent.name
+def extract_env_name(checkpoint_path: Path):
+    return checkpoint_path.parent.parent.parent.parent.name
 
 
 def desc_line():

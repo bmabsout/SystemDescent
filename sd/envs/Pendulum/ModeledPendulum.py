@@ -12,6 +12,7 @@ from gymnasium.envs.classic_control import utils
 from gymnasium.error import DependencyNotInstalled
 from tensorflow import keras
 from sd.envs.modelable_env import ModelableEnv
+import sd.utils
 
 DEFAULT_X = np.pi
 DEFAULT_Y = 1.0
@@ -122,7 +123,7 @@ class ModeledPendulumEnv(ModelableEnv):
             low=-self.max_torque, high=self.max_torque, shape=(1,), dtype=np.float32
         )
         self.observation_space = spaces.Box(low=-high, high=high, dtype=np.float32)
-        self.model = keras.models.load_model(model_path)
+        self.model = sd.utils.load_checkpoint(model_path)
 
         def run_nn(obs, action):
             latent_shape = self.model.input["latent"].shape
