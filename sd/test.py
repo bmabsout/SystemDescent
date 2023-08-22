@@ -101,7 +101,7 @@ if __name__ == "__main__":
     if args.no_test:
         exit()
 
-    def run_test(num_steps=100):
+    def run_test(num_steps=2000):
         pygame.init()
         pygame.display.init()
         window = pygame.display.set_mode((500*2, 500))
@@ -122,9 +122,18 @@ if __name__ == "__main__":
         env_obs, _ = modeled_env.reset(seed=args.seed)
         # env_obs = env.env.init_with_state(np.array([0.9474508 , 0.31990144, 1.06079]))
         orig_env_obs, _ = orig_env.reset(seed=args.seed)
+        prev_pos = None
         def feed_obs(obs):
+            global setpoint
             #print("state_shape", np.array([obs]).shape)
             #print("setpoint_shape", np.array([set_point]).shape)
+            if pygame.mouse.get_pressed()[0]:
+                cur_pos = np.array(pygame.mouse.get_pos())
+                # if prev_pos is not None:
+
+                setpoint = angle_to_setpoint(np.arctan2(*(np.array(surface1.get_size())/2.0 - cur_pos)))
+                # print(setpoint)
+                # prev_pos = cur_pos
             return {"state": np.array([obs]), "setpoint": np.array([setpoint])}
         
         for i in range(num_steps):
