@@ -1,6 +1,6 @@
 import tensorflow as tf
 from tensorflow import keras
-from tensorflow.keras import layers
+from keras import layers
 # import dill
 from sd import utils
 
@@ -23,10 +23,6 @@ def pendulum_difference_eq(states, actions):
 
     return tf.squeeze(new_state, [-1])
 
-
-# @tf.function
-# def keras_lambda(x):
-#     return 
 
 def pendulum_diff_Model():
 	input_state = keras.Input(shape=(3,))

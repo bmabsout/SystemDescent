@@ -14,7 +14,7 @@ from typing import NamedTuple, Union, Dict, Tuple
 #     return res.squeeze()
 
 @tf.function
-def geo(l, slack=1e-15,**kwargs): # doesn't handle batches correctly
+def geo(l, slack=0.0,**kwargs): # doesn't handle batches correctly
     # n = tf.cast(tf.size(l), tf.float32)
     # < 1e-30 because nans start appearing out of nowhere otherwise
     slacked = l+slack
@@ -27,20 +27,25 @@ def geo(l, slack=1e-15,**kwargs): # doesn't handle batches correctly
 
 
 @tf.function
-def p_mean(l, p, slack=1e-9, **kwargs):
+def p_mean(l, p, slack=0.0, **kwargs):
     """
     generalized mean, p = -1 is the harmonic mean, p = 1 is the regular mean, p=inf is the max function ...
     https://www.wolframcloud.com/obj/26a59837-536e-4e9e-8ed1-b1f7e6b58377
     """
     if p == 0.:
         return geo(tf.abs(l), slack, **kwargs) # there's an issue with this
-    elif p == np.inf:
-        return tf.reduce_max(l)
-    elif p == -np.inf:
-        return tf.reduce_min(l)
-    else:
-        slacked = tf.abs(l) + slack
-        return tf.reduce_mean(slacked**p, **kwargs)**(1.0/p) - slack
+    # elif p == np.inf:
+    #     return tf.reduce_max(l)
+    # elif p == -np.inf:
+    #     return tf.reduce_min(l)
+    # else:
+    slacked = tf.abs(l) + slack
+    return tf.reduce_mean(slacked**p, **kwargs)**(1.0/p) - slack
+
+@tf.function
+def i_mean(l, p):
+    """inverse of p_mean, changes focus point from 0.0 to 1.0 (how far you are from 1 rather than 0)"""
+    return 1.0 - p_mean(1.0 - l, p)
 
 @tf.function
 def transform(x, from_low, from_high, to_low, to_high):
@@ -62,7 +67,15 @@ def smooth_constraint(x, from_low, from_high, to_low=0.03, to_high=0.97, starts_
     return scale(tf.sigmoid(transform(x, from_low, from_high, sigmoid_low, sigmoid_high)))
 
 
+def tensor_to_str(tensor: tf.Tensor):
+    return np.array2string(tensor.numpy().squeeze(), formatter={'float_kind':lambda x: f"{x:.2e}"})
 
+DFL = Union["Constraints", tf.Tensor]
+
+def format_constraint(name_constraint: Tuple[str, DFL]):
+    name, constraint = name_constraint
+    constraint_str = (tensor_to_str if isinstance(constraint, tf.Tensor) else str)(constraint)
+    return f"{name}:{constraint_str}"
 
 class Constraints(NamedTuple):
     '''DFL stands for Differentiable fuzzy logic
@@ -71,27 +84,25 @@ class Constraints(NamedTuple):
         '''
     operator: tf.Tensor
     constraints: Dict[str, 'DFL']
+    def scalarize(self):
+        return p_mean(tf.stack(list(map(dfl_scalar, self.constraints.values()))), self.operator)
+    def __str__(self):
+        return f"{self.operator:.2g}<{' '.join(map(format_constraint, self.constraints.items()))}>"
 
-DFL = Union[Constraints, tf.Tensor]
+class InvConstraints(Constraints):
+    def scalarize(self):
+        return 1.0 - p_mean(tf.stack(list(map(lambda x: 1.0 - dfl_scalar(x), self.constraints.values()))),self.operator)
+    def __str__(self):
+        return f"{self.operator:.2g}<!{' '.join(map(format_constraint, self.constraints.items()))}!>"
+
 # currently specialized to tf tensors, can be made generic if https://bugs.python.org/issue43923 is solved
 
 def dfl_scalar(dfl: DFL):
     return (
-            p_mean(tf.stack(list(map(dfl_scalar, dfl.constraints.values()))),dfl.operator)
+            dfl.scalarize()
         if(isinstance(dfl, Constraints)) else
             dfl
     )
-
-def format_dfl(dfl: DFL):
-    if isinstance(dfl, Constraints):
-        def format_constraint(name_constraint: Tuple[str, DFL]):
-            name, constraint = name_constraint
-            return f"{name}:{format_dfl(constraint)}"
-        return f"<{dfl.operator:.2e} {list(map(format_constraint, dfl.constraints.items()))}>"
-    elif isinstance(dfl, tf.Tensor):
-        return np.array2string(dfl.numpy().squeeze(), formatter={'float_kind':lambda x: f"{x:.2e}"})
-    else:
-        return str(dfl)
 
 
 @tf.function
@@ -100,3 +111,21 @@ def implies(normed_pred, normed_implied):
 
 # def and(dfl1: DFL, dfl2: DFL):
 #     return Constraints(0, )
+
+@tf.function
+def laplace_smoothing(weaken_me, weaken_by):
+    return (weaken_me + weaken_by)/(1.0 + weaken_by)
+
+
+@tf.custom_gradient
+def scale_gradient(x, scale):
+  def grad(dy): return (dy * scale, None)
+  return x, grad
+
+
+@tf.custom_gradient
+def move_toward_zero(x):
+    #tweaked to be a good activity regularizer for tanh within the dfl framework
+    def grad(dy):
+        return -dy*x*x*x*5.0
+    return tf.sigmoid(-tf.abs(x)+5), grad
