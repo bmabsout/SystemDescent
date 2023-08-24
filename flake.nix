@@ -19,8 +19,10 @@
       supportedSystems = [ "x86_64-linux" "aarch64-darwin" ];
       forAllSystems = f: l.genAttrs supportedSystems
         (system: f system (import nixpkgs {inherit system;
-        overlays=[nixgl.overlay]; config.allowUnfree=true; config.cudaSupport =
-          true; config.cudaCapabilities = [ "8.6" ];}));
+        overlays=[nixgl.overlay]; 
+        #config.allowUnfree=true; config.cudaSupport = true;
+        #config.cudaCapabilities = [ "8.6" ];
+        }));
       
     in
     {
