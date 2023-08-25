@@ -8,51 +8,71 @@ from tensorflow.keras import layers
 # import matplotlib
 # matplotlib.use('TkAgg')
 import matplotlib
-matplotlib.use('Agg')
+# matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from . import utils 
 import argparse
 import pygame
 
-def plot_lyapunov(lyapunov, actor, dynamics, set_point, fname='lyapunov'):
-    pts = 200*10
-    theta = np.linspace(-np.pi, np.pi, pts).reshape(-1,1)
-    theta_dot = np.linspace(-7.0, 7.0,pts).reshape(-1,1)
 
-    thetav, theta_dotv = np.meshgrid(theta, theta_dot)
-    inputs = np.array([np.cos(thetav), np.sin(thetav), theta_dotv]).T.reshape(-1,3)
-    set_points = inputs*0 + set_point
-    z = lyapunov({"state": inputs, "setpoint": set_points}, training=False)
-    acts = actor({"state":inputs, "setpoint": set_points}, training=False)
-    after = dynamics({"state": inputs, "action": acts, "latent": np.random.normal(size=(inputs.shape[0],)+dynamics.input["latent"].shape[1:])}, training=False)
-    next_z = lyapunov({"state": after, "setpoint": set_points}, training=False)
-    after = after.numpy().reshape(pts,pts,3)
-    z = z.numpy().reshape(pts,pts, 1)
-    next_z = next_z.numpy().reshape(pts,pts,1)
-    acts = acts.numpy().reshape(pts,pts,1)
-    # actor = lambda x, **kwargs: np.array([0.0])
-    # res = dynamics([states,acts], training=False)
-
-    # z = lyapunov([states, set_points], training=False)
-
-    # plt.plot(x[:,1], lyapunov([res, set_points]) - y)
-    plt.pcolormesh(thetav, theta_dotv, z.T[0][:-1, :-1], vmin=0.0, vmax=1.0)
-    plt.colorbar()
-    # plt.savefig(checkpoint_path + "/lyapunov_tf/lyapunov.png")
+def angle_to_setpoint(angle):
+    return np.array([np.cos(angle),np.sin(angle),0.0])  
 
 
-    # plt.pcolormesh(thetav, theta_dotv, acts.T[0][:-1, :-1])
+def plot_lyapunov(lyapunov, actor, dynamics, set_point, fname, interactive=False):
+    def calculate_lyapunov(set_point):
+        pts = 200
+        theta = np.linspace(-np.pi, np.pi, pts).reshape(-1,1)
+        theta_dot = np.linspace(-7.0, 7.0,pts).reshape(-1,1)
+
+        thetav, theta_dotv = np.meshgrid(theta, theta_dot)
+        inputs = np.array([np.cos(thetav), np.sin(thetav), theta_dotv]).T.reshape(-1,3)
+        set_points = inputs*0 + set_point
+        z = lyapunov({"state": inputs, "setpoint": set_points}, training=False)
+        acts = actor({"state":inputs, "setpoint": set_points}, training=False)
+        after = dynamics({"state": inputs, "action": acts, "latent": np.random.normal(size=(inputs.shape[0],)+dynamics.input["latent"].shape[1:])}, training=False)
+        next_z = lyapunov({"state": after, "setpoint": set_points}, training=False)
+        after = after.numpy().reshape(pts,pts,3)
+        z = z.numpy().reshape(pts,pts, 1)
+        next_z = next_z.numpy().reshape(pts,pts,1)
+        acts = acts.numpy().reshape(pts,pts,1)
+        return thetav, theta_dotv, z
+    
+    init=True
+
+    def draw_lyapunov(set_point):
+        nonlocal init
+            
+        thetav, theta_dotv, z = calculate_lyapunov(set_point)
+        plt.pcolormesh(thetav, theta_dotv, z.T[0][:-1, :-1], vmin=0.0, vmax=1.0)
+        if init:
+            plt.colorbar()
+            init = False
+        plt.xlabel('$\\theta$')
+        plt.ylabel('$\\dot{\\theta}$')
+        if interactive:
+            plt.show()
+        else:
+            plt.savefig(f'{fname}.png')
+
+
+    def mouse_event(event):
+        set_point = np.array([np.cos(event.xdata), np.sin(event.xdata), event.ydata])
+        draw_lyapunov(set_point)
+        print(f'theta: {event.xdata} and theta_dot: {event.ydata}')
+
+    fig = plt.figure()
+    fig.canvas.mpl_connect('button_press_event', mouse_event)
+    draw_lyapunov(set_point)
     # plt.colorbar()
-    plt.savefig(f'{fname}.png')
-    # plt.show()
+ 
 
 
     # plt.pcolormesh(thetav, theta_dotv, (next_z - z).T[0][:-1,:-1])
     # plt.colorbar()
     # plt.show()
 
-def angle_to_setpoint(angle):
-    return np.array([np.cos(angle),np.sin(angle),0.0])    
+  
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
