@@ -24,6 +24,9 @@ def V_def(state_shape: Tuple[int, ...]):
 	dense1 = layers.Dense(64, activation='tanh', kernel_regularizer=keras.regularizers.l2(0.01))(inputs)
 	dense2 = layers.Dense(64, activation='tanh', kernel_regularizer=keras.regularizers.l2(0.01))(dense1)
 	outputs = layers.Dense(1, activation='sigmoid', kernel_regularizer=keras.regularizers.l2(0.01))(dense2)
+	# outputs = layers.Activation("relu")(activation)
+
+	# outputs = layers.Lambda(lambda x: tf.clip_by_value(x+0.5, 0.0, 1.0))(activation)
 	model = keras.Model(inputs={"state": input_state, "setpoint": input_setpoint}, outputs=outputs, name="V")
 	print()
 	print()
@@ -56,9 +59,9 @@ def generate_dataset(env: gym.Env):
 			# angle = np.where(np.abs(np.cos(init_state)) < 0.7, 0.0, init_state) # randomize setpoints
 
 			angle = np.random.uniform(-np.pi/7.0, np.pi/7.0) + np.random.randint(2)*np.pi
+			yield {"state":obs, "setpoint": [np.cos(angle), np.sin(angle), 0.0]}
 			# chooses only non-sideways angles
 
-			yield {"state":obs, "setpoint": [np.cos(angle), np.sin(angle), 0.0]}
 			# yield {"state": obs, "setpoint":[1.0, 0.0, 0.0]} 
 
 			# yield random setpoint. upright or downright
@@ -102,7 +105,7 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 			states = states.write(i, current_states)
 		return current_states, tf.transpose(states.stack(), [1,0,2]) # ok, I think this operation is to put batch back to the first dimension
 
-	@tf.function
+	# @tf.function
 	def batch_value(batch):
 		'''
 		   batch: {
@@ -136,7 +139,7 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 
 		# the Lyapunov value at the setpoint(origin) should be zero
 		# thus a fully trained V(setpoint) should return zero. Thus zero == 1 when sufficiently trained
-		zero = p_mean((1.0-V({"state": set_points, "setpoint": set_points}))**10.0, 0) 
+		zero = p_mean((1.0-V({"state": set_points, "setpoint": set_points})**0.5), -1.0)
 		
 		# for condition: V shall decrease along time (i.e. along the update steps)
 		# diff = (Vx - V_fxu)
@@ -173,41 +176,28 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 		actor_reg = 1 - tf.tanh(tf.reduce_mean(actor.losses))
 		lyapunov_reg = 1 - tf.tanh(tf.reduce_mean(V.losses))
 
-		# what's this? 
-		avg_large = tf.minimum(transform(p_mean(Vx,-1.0, slack=1e-15), 0.0, 0.4, 0.0, 1.0), 1.0)
 
 		# if near the setpoint, decrease slower. otherwise decrease faster. This shapes the Lyapunov function. 
 		repetitionsf = tf.cast(repetitions, tf.dtypes.float32)
 		maxRepetitionsf = tf.cast(maxRepetitions, tf.dtypes.float32)
-		line = smooth_constraint(repetitionsf, 1.0, 40, starts_linear=True, to_low = 0.0)
-		# under_zero = diff < 0.0
-		decreases_everywhere = tf.where(diff < 0.0, 0.5*(1.0+diff), 0.5+0.5*smooth_constraint(diff, 0.0, line, to_low = 0.0, starts_linear=True))
-		# non_increasing = p_mean((1.0 + diff[under_zero]), -1.0)**2.0
-		# decreasing = p_mean(tf.tanh(3.0*diff[~under_zero]/line), 1.0)
-		# tf.minimum(transform(diff, -1.0, line, 0.0, 1.0), 1.0)**2.0
-		non_setpoint_Vx = tf.where(angular_similarities > 0.95, 1.0, Vx)
-		large_elsewhere = tf.minimum(tf.reduce_min(non_setpoint_Vx)*10 ,1.0)**2
-		# gain option I:
-		# proof_of_performance = tf.squeeze(tf.reduce_mean(decreases_everywhere))
-
-		# gain option II:
-		proof_of_performance = 1 - tf.squeeze(p_mean(1 - decreases_everywhere, 2.0))
+		decrease_by = 1.0/100.0 # should arrive to the target within 100 steps
+		line = tf.minimum(decrease_by*repetitionsf, Vx) # how much we would like taking a step to reduce V by
+		proof_of_performance = p_mean( build_piecewise([(-1.0, 0.0), (-0.1, 0.001), (0.0, 0.01), (line, 0.9), (1.0, 1.0)], diff, clipped=True), -1.0)
+		# for now proof of performance has a hardcoded piecewise linear function for the ranges that we consider critical (negative values) vs nice to have (above line)
+			
+		non_setpoint_Vx = tf.where(angular_similarities > 0.99, 1.0, Vx)
+		large_elsewhere = p_mean(tf.minimum(non_setpoint_Vx*10, 1.0), 0.0)
 
 		dfl = Constraints(0.0,
 			{
-			"close_angles": scale_gradient(p_mean(as_all, 2.0), 10.0),
-			# "close_angle": smooth_constraint(close_angle,0.65, 0.73),
+			# "close_angles": scale_gradient(p_mean(as_all, 2.0), 1.0),
+			"close_angles": build_piecewise([(0.0, 0.0), (0.6, 0.01), (0.7, 0.9), (1.0, 1.0)], p_mean(as_all, 2.0)),
 			"lyapunov": Constraints(0.0, {
-				"proof_of_performance": proof_of_performance,
-				# "decreasing": decreasing,
-				# "non_increasing": non_increasing
-				"avg_large": scale_gradient(tf.reduce_mean(tf.minimum(5*non_setpoint_Vx, 1.0))**10, 10.0),
-				# "large_elsewhere": large_elsewhere**0.25,
-				"zero": scale_gradient(zero, 0.1),
-				# "diff": p_mean(diff, -1),
-				# "diff": p_mean(diff/2.0 + 0.5, -1.0),
-				# "actor_reg": tf.minimum(transform(actor_reg, 0.0, 1.0, 0.0, 1.1), 1.0),
-			# 	# "lyapunov_reg": tf.minimum(transform(lyapunov_reg, 0.0, 1.0, 0.0, 1.1), 1.0),
+				"pop": proof_of_performance,
+				"large": large_elsewhere,
+				"zero": zero,
+			# # 	# "actor_reg": tf.minimum(transform(actor_reg, 0.0, 1.0, 0.0, 1.1), 1.0),
+			# # 	# "lyapunov_reg": tf.minimum(transform(lyapunov_reg, 0.0, 1.0, 0.0, 1.1), 1.0),
 			})
 		})
 
@@ -231,9 +221,10 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 		grads = tape.gradient(loss, actor.trainable_weights + V.trainable_weights)
 		# modified_grads = [ (grad_bundle if grad_bundle is None else set_gradient_size(grad_bundle, loss)) for grad_bundle in grads ]
 		# tf.print(grads)
-		
+		# optimizer.learning_rate = args.lr*transform(scalar, 0.3, 0.7, 1.0, 0.01, clipped=True)
 		# tf.print(1-loss_value)
-		# tf.print(grads)
+		# tf.print("grads:", grads)
+		# tf.print("trainable:", V.trainable_weights)
 		# tf.print(tf.reduce_mean(list(map(lambda x: tf.reduce_mean(tf.abs(x)), grads))))
 		optimizer.apply_gradients(zip(grads, actor.trainable_weights + V.trainable_weights))
 
@@ -252,6 +243,8 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 		every_n_seconds={"freq": args.save_freq, "callback": save_models})
 	
 if __name__ == "__main__":
+	# tf.config.run_functions_eagerly(True)
+	
 	parser = argparse.ArgumentParser()
 	parser.add_argument("--ckpt_path",type=Path,default=None)
 	parser.add_argument("--num_batches",type=int,default=200)

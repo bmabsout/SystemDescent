@@ -81,6 +81,7 @@ if __name__ == "__main__":
     parser.add_argument('--low_actor', action="store_true")
     parser.add_argument('--no_lyapunov', action="store_true")
     parser.add_argument('--no_test', action="store_true")
+    parser.add_argument('--interactive', action="store_true")
     parser.add_argument('--angle', type=float, default=0.0)
     parser.add_argument('--seed', type=int, default=np.random.randint(100000))
     args = parser.parse_args()
@@ -114,7 +115,7 @@ if __name__ == "__main__":
     if not args.no_lyapunov:
         try:
             lyapunov = keras.models.load_model(checkpoint_path.parent / "lyapunov.keras")
-            plot_lyapunov(lyapunov, actor, dynamics, setpoint, fname = f'V_{args.angle}')
+            plot_lyapunov(lyapunov, actor, dynamics, setpoint, f'V_{args.angle}', interactive=args.interactive)
         except:
             pass
 
@@ -134,26 +135,14 @@ if __name__ == "__main__":
             model_path=checkpoint_path, render_mode="human", screen=surface1)#, test=True, gui=True)
 
         orig_env = gym.make(env_name, render_mode="human", screen=surface2)
-        # seed = 632732 #bottom almost
-        # seed = 154911 # almost rotate
-        # seed = 47039 # almost rotate, then rotate
-        # seed = 364366 # rotate
         print("seed:", args.seed)
         env_obs, _ = modeled_env.reset(seed=args.seed)
-        # env_obs = env.env.init_with_state(np.array([0.9474508 , 0.31990144, 1.06079]))
         orig_env_obs, _ = orig_env.reset(seed=args.seed)
-        prev_pos = None
         def feed_obs(obs):
             global setpoint
-            #print("state_shape", np.array([obs]).shape)
-            #print("setpoint_shape", np.array([set_point]).shape)
             if pygame.mouse.get_pressed()[0]:
                 cur_pos = np.array(pygame.mouse.get_pos())
-                # if prev_pos is not None:
-
                 setpoint = angle_to_setpoint(np.arctan2(*(np.array(surface1.get_size())/2.0 - cur_pos)))
-                # print(setpoint)
-                # prev_pos = cur_pos
             return {"state": np.array([obs]), "setpoint": np.array([setpoint])}
         
         for i in range(num_steps):
