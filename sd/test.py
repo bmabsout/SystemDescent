@@ -10,6 +10,7 @@ from tensorflow.keras import layers
 import matplotlib
 # matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
 from . import utils 
 import argparse
 import pygame
@@ -55,19 +56,50 @@ def plot_lyapunov(lyapunov, actor, dynamics, set_point, fname, interactive=False
         else:
             plt.savefig(f'{fname}.png')
 
+    def distance_to_setpoint(state, setpoint):
+        return np.sqrt((state[0,0] - setpoint[0])**2 + (state[0,1] - setpoint[1])**2 + (state[0,2] - setpoint[2])**2)
+    
+    MAX_UPDATES = 100  
+    CLOSE_ENOUGH_THRESHOLD = 0.05  
+    cur_setpoint = set_point
+    scatter_collections = []
 
     def mouse_event(event):
-        set_point = np.array([np.cos(event.xdata), np.sin(event.xdata), event.ydata])
-        draw_lyapunov(set_point)
-        print(f'theta: {event.xdata} and theta_dot: {event.ydata}')
+        nonlocal scatter_collections
+        nonlocal cur_setpoint
+
+        if event.button == 1:  # Left mouse button
+            set_point = np.array([np.cos(event.xdata), np.sin(event.xdata), event.ydata])
+            cur_setpoint = set_point
+            draw_lyapunov(set_point)
+            print(f'theta: {event.xdata} and theta_dot: {event.ydata}')
+
+        elif event.button == 3:  # Right mouse button
+            for scatter_plot in scatter_collections:
+                scatter_plot.remove()
+                scatter_collections = []
+
+            init_state = np.array([np.cos(event.xdata), np.sin(event.xdata), event.ydata]).reshape(1,3)
+            print(f'Init state set to theta: {event.xdata} and theta_dot: {event.ydata}')
+
+            update_count = 0
+            colors = cm.Reds(np.linspace(0, 1, MAX_UPDATES))
+            while distance_to_setpoint(init_state, cur_setpoint) > CLOSE_ENOUGH_THRESHOLD and update_count < MAX_UPDATES:
+                pt = (np.arctan2(init_state[0,1], init_state[0,0]), init_state[0,2])
+                if -np.pi < pt[0] < np.pi and -7 < pt[1] < 7:
+                    scatter_plot = plt.scatter(pt[0], pt[1], c=[colors[update_count]], s=10)
+                    scatter_collections.append(scatter_plot)
+                    plt.draw()
+                    plt.pause(0.1)
+                act = actor({"state":init_state, "setpoint": np.array([cur_setpoint])}, training=False)
+                init_state = dynamics({"state": init_state, "action": act, "latent": np.random.normal(size=(1,)+dynamics.input["latent"].shape[1:])}, training=False)
+                update_count += 1
 
     fig = plt.figure()
     fig.canvas.mpl_connect('button_press_event', mouse_event)
     draw_lyapunov(set_point)
+
     # plt.colorbar()
- 
-
-
     # plt.pcolormesh(thetav, theta_dotv, (next_z - z).T[0][:-1,:-1])
     # plt.colorbar()
     # plt.show()
