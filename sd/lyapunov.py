@@ -168,7 +168,6 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 		# A: angles between 
 		as_all = angular_similarity(transposed_states, transposed_setpoints)
 		angular_similarities = angular_similarity(tf.transpose(fxu)[0:2] ,tf.transpose(set_points)[0:2])
-		close_angle = p_mean(angular_similarities, 4.) # 0:2 is for taking position only not the velocity
 
 		# for each sample in the batch, there is a loss for the actor. So the reduce_mean is to get the average loss for the batch?
 		# but is actor.loss best to be 0? in this case actor_reg is best to be 1
@@ -180,13 +179,13 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 		# if near the setpoint, decrease slower. otherwise decrease faster. This shapes the Lyapunov function. 
 		repetitionsf = tf.cast(repetitions, tf.dtypes.float32)
 		maxRepetitionsf = tf.cast(maxRepetitions, tf.dtypes.float32)
-		decrease_by = 1.0/100.0 # should arrive to the target within 100 steps
+		decrease_by = 1.0/100.0 # should arrive to the target within 100 steps, think about maximizing this parameter
 		line = tf.minimum(decrease_by*repetitionsf, Vx) # how much we would like taking a step to reduce V by
 		proof_of_performance = p_mean( build_piecewise([(-1.0, 0.0), (-0.1, 0.001), (0.0, 0.01), (line, 0.9), (1.0, 1.0)], diff, clipped=True), -1.0)
 		# for now proof of performance has a hardcoded piecewise linear function for the ranges that we consider critical (negative values) vs nice to have (above line)
 			
 		non_setpoint_Vx = tf.where(angular_similarities > 0.99, 1.0, Vx)
-		large_elsewhere = p_mean(tf.minimum(non_setpoint_Vx*10, 1.0), 0.0)
+		large_elsewhere = p_mean(tf.minimum(non_setpoint_Vx*10, 1.0), 0.0) # making sure non setpoints Vx > 0.1
 
 		dfl = Constraints(0.0,
 			{

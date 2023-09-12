@@ -70,8 +70,8 @@ def ball_differential_eq(states, actions):
     # update states
     new_v_x = g * tf.sin(theta_x) * dt + v_x
     new_v_y = g * tf.sin(theta_y) * dt + v_y
-    new_s_x = v_x * dt + s_x   # here to debate whether to use v_x or new_v_x, GPT call the curret semi-implicit Euler method
-    new_s_y = v_y * dt + s_y
+    new_s_x = new_v_x * dt + s_x   # here to debate whether to use v_x or new_v_x, GPT call the curret semi-implicit Euler method
+    new_s_y = new_v_y * dt + s_y
 
     # clip states
     new_s_x = tf.clip_by_value(new_s_x, -max_ball_sx, max_ball_sx)
