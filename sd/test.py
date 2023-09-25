@@ -14,8 +14,7 @@ import matplotlib.cm as cm
 from . import utils 
 import argparse
 import pygame
-
-
+import time
 def angle_to_setpoint(angle):
     return np.array([np.cos(angle),np.sin(angle),0.0])  
 
@@ -79,20 +78,24 @@ def plot_lyapunov(lyapunov, actor, dynamics, set_point, fname, interactive=False
                 scatter_plot.remove()
                 scatter_collections = []
 
-            init_state = np.array([np.cos(event.xdata), np.sin(event.xdata), event.ydata]).reshape(1,3)
+            state = np.array([np.cos(event.xdata), np.sin(event.xdata), event.ydata]).reshape(1,3)
             print(f'Init state set to theta: {event.xdata} and theta_dot: {event.ydata}')
 
             update_count = 0
             colors = cm.Reds(np.linspace(0, 1, MAX_UPDATES))
-            while distance_to_setpoint(init_state, cur_setpoint) > CLOSE_ENOUGH_THRESHOLD and update_count < MAX_UPDATES:
-                pt = (np.arctan2(init_state[0,1], init_state[0,0]), init_state[0,2])
+            while distance_to_setpoint(state, cur_setpoint) > CLOSE_ENOUGH_THRESHOLD and update_count < MAX_UPDATES:
+                pt = (np.arctan2(state[0,1], state[0,0]), state[0,2])
                 if -np.pi < pt[0] < np.pi and -7 < pt[1] < 7:
                     scatter_plot = plt.scatter(pt[0], pt[1], c=[colors[update_count]], s=10)
                     scatter_collections.append(scatter_plot)
-                    plt.draw()
-                    plt.pause(0.1)
-                act = actor({"state":init_state, "setpoint": np.array([cur_setpoint])}, training=False)
-                init_state = dynamics({"state": init_state, "action": act, "latent": np.random.normal(size=(1,)+dynamics.input["latent"].shape[1:])}, training=False)
+                    fig.canvas.draw_idle()
+                    fig.canvas.start_event_loop(0.1)
+                    
+                    
+                    # plt.draw()
+                    # plt.pause(0.0)
+                act = actor({"state":state, "setpoint": np.array([cur_setpoint])}, training=False)
+                state = dynamics({"state": state, "action": act, "latent": np.random.normal(size=(1,)+dynamics.input["latent"].shape[1:])}, training=False)
                 update_count += 1
 
     fig = plt.figure()
