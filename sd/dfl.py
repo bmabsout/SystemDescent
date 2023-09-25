@@ -19,6 +19,7 @@ def p_mean(l, p: float, slack=1e-15, default_val=tf.constant(0.0), axis=None):
     https://www.wolframcloud.com/obj/26a59837-536e-4e9e-8ed1-b1f7e6b58377
     """
     p = tf.cast(p, tf.float32)
+    l = tf.cast(l, tf.float32)
     p = tf.where(tf.cast(p, tf.float32) < 1e-5, 1e-5, p)
 
     return tf.cond(tf.reduce_prod(tf.shape(l)) == 0 # condition if an empty array is fed in

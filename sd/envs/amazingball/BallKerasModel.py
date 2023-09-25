@@ -1,4 +1,7 @@
 import tensorflow as tf
+import numpy as np
+import pybullet as p
+import time
 from tensorflow import keras
 from keras import layers
 # import dill
@@ -80,6 +83,48 @@ def ball_differential_eq(states, actions):
     new_state = tf.concat([new_s_x, new_s_y, new_v_x, new_v_y], axis=1)
 
     return new_state
+
+ball_x = 0
+plate_rx = 0
+
+def get_sphere_position():
+    # Replace with your logic
+    global ball_x
+    ball_x += 0.01
+    return [ball_x, 0, 0.06]
+
+def get_plate_rotation():
+    global plate_rx
+    plate_rx += 0.01
+    return [plate_rx, 0, 0]  # Roll, Pitch, Yaw
+
+if __name__=='__main__':
+    p.connect(p.GUI)
+    p.setAdditionalSearchPath("sd/envs/amazingball/assets")
+    plate = p.loadURDF("plate.urdf")
+
+    visualShapeId = p.createVisualShape(shapeType=p.GEOM_SPHERE, radius=0.04)
+    sphere = p.createMultiBody(baseVisualShapeIndex=visualShapeId)
+
+    # Delta time (change this value based on your requirement)
+    dt = 0.01
+
+    try:
+        while True:
+            sphere_pos = get_sphere_position()
+            plate_rot = get_plate_rotation()
+
+            # Set sphere position
+            p.resetBasePositionAndOrientation(sphere, sphere_pos, p.getQuaternionFromEuler([0, 0, 0]))
+
+            # Set plate rotation
+            p.resetBasePositionAndOrientation(plate, [0, 0, 0], p.getQuaternionFromEuler(plate_rot))
+
+            time.sleep(dt)
+
+    except KeyboardInterrupt:
+        # Disconnect when script is interrupted
+        p.disconnect()
 
 
 

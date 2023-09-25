@@ -6,17 +6,15 @@ Adapted from
 import time
 from typing import TypedDict
 
-import gym
+import gymnasium as gym
 import numpy as np
 import pybullet as p
-import pybullet_data
 import tensorflow as tf
-from gym import spaces
+from gymnasium import spaces
 from pybullet_utils import bullet_client as bc
 from sd import dfl
 from sd.rl import utils
 from sd.envs.modelable_env import ModelableEnv, ModelableWrapper
-from dataclasses import dataclass
 # import Quaternion
 
 def SetpointedAmazingBallEnv(**kwargs):
@@ -44,9 +42,9 @@ class AmazingBallEnv(gym.Env):
                  freq: int=50,
                  real_time: bool=False,
                  aggregate_phy_steps: int=1,
-                 gui=False,
                  user_debug_gui=True,
                  test=False,
+                 render_mode="human"
                  ):
         """Initialization of a generic aviary environment.
 
@@ -73,7 +71,7 @@ class AmazingBallEnv(gym.Env):
         self.TIMESTEP = 1./self.SIM_FREQ
         self.AGGR_PHY_STEPS = aggregate_phy_steps
         #### Options ###############################################
-        self.GUI = gui
+        self.GUI = render_mode == "human"
         self.USER_DEBUG = user_debug_gui
         #### Compute constants #####################################
         self.real_time = real_time
@@ -113,7 +111,6 @@ class AmazingBallEnv(gym.Env):
         self._housekeeping()
         self._initialize_pybullet()
         self.CLIENT.stepSimulation()
-        #### Update and store the drones kinematic information #####
         self._updateAndStoreKinematicInformation()
 
     ################################################################################
@@ -133,7 +130,7 @@ class AmazingBallEnv(gym.Env):
         self.CLIENT.resetBasePositionAndOrientation(self.plate_id, np.array([0,0,0]), p.getQuaternionFromEuler([0, 0, 0]))
         self.CLIENT.resetBaseVelocity(self.plate_id, np.array([0,0,0]))
 
-    def reset(self):
+    def reset(self, seed=None, options=None):
         """Resets the environment.
 
         Returns
@@ -141,6 +138,7 @@ class AmazingBallEnv(gym.Env):
         ndarray | dict[..]
             The initial observation
         """
+        self.seed(seed)
         # self.CLIENT.resetSimulation()
         #### Housekeeping ##########################################
         self.START_TIME = time.time()
@@ -151,7 +149,7 @@ class AmazingBallEnv(gym.Env):
         self.CLIENT.stepSimulation()
         self._updateAndStoreKinematicInformation()
         #### Return the initial observation ########################
-        return self.obs
+        return self.obs, {}
     
     ################################################################################
 
@@ -207,9 +205,10 @@ class AmazingBallEnv(gym.Env):
                 self._updateAndStoreKinematicInformation()
             #### Step the simulation using the desired physics update ##
             self._physics(action)
-            self.CLIENT.stepSimulation()
+            self.CLIENT.stepSimulation()   ## TODO 
         #### Update and store the drones kinematic information #####
         self._updateAndStoreKinematicInformation()
+        ## TODO: set new position based on diffeq : self.CLIENT.resetBasePositionAndOrientation()
         #### Prepare the return values #############################
         info = self._computeInfo()
         #### Advance the step counter ##############################
@@ -217,7 +216,7 @@ class AmazingBallEnv(gym.Env):
         self.last_action = action
         if(self.test):
             utils.sync(self.step_counter, self.START_TIME, self.TIMESTEP)
-        return self.obs, 0, False, info
+        return self.obs, 0, False, False, info
     
     ################################################################################
     
@@ -297,7 +296,7 @@ class AmazingBallEnv(gym.Env):
         """
         pos, quat = self.CLIENT.getBasePositionAndOrientation(self.ball_id)
         vel, _ = self.CLIENT.getBaseVelocity(self.ball_id)
-        self._set_obs({"position": pos[0:1], "velocity": vel[0:1]})
+        self._set_obs({"position": pos[0:2], "velocity": vel[0:2]})
 
     ################################################################################
     def _physics(self, action):
@@ -308,6 +307,7 @@ class AmazingBallEnv(gym.Env):
 
     ################################################################################
 
+        # obs1 = tf.cast(obs1, tf.float32)
     def _actionSpace(self):
         return spaces.Box(
             low=-np.ones(2),
@@ -365,15 +365,16 @@ class SetpointWrapper(ModelableEnv, gym.Wrapper):
         self.observation_space = self._observationSpace()
     
     def step(self, action):
-        obs, reward, done, info = super().step(action)
+        obs, reward, done, truncated, info = super().step(action)
         self.setpoint = self._calculate_setpoint()
         full_obs = self.observation(obs)
         reward = self.reward(action, full_obs)
-        return full_obs, reward, self.done(done, reward), info
+        return full_obs, reward, self.done(done, reward), truncated, info
 
-    def reset(self):
+    def reset(self, seed=None, options=None):
         self.setpoint = self._calculate_setpoint()
-        return self.observation(super().reset())
+        obs, i = super().reset(seed=seed, options=options)
+        return self.observation(obs), i
 
     
     def reward(self, action, obs) -> float:
@@ -417,11 +418,11 @@ class SetpointWrapper(ModelableEnv, gym.Wrapper):
 
 
 if __name__ == "__main__":
-    env = SetpointedAmazingBallEnv(gui=True, test=True)
+    env = SetpointedAmazingBallEnv(render_mode="human", test=True)
     i = 0
     rw_sum = 0
     while(1):
-        full_obs, reward, done, info = env.step(env.action_space.sample())
+        full_obs, reward, done, truncated, info = env.step(env.action_space.sample())
         rw_sum += reward
         if(i % 100 == 0):
             env.render()
@@ -430,3 +431,8 @@ if __name__ == "__main__":
             rw_sum = 0
             env.reset()
         i+=1
+
+
+# TODO: construct a new environmet AmazingBallDataEnv, 
+#       where the cooridinate is centered at the plate for math simplicity
+#       learn how to write gymnasium env 

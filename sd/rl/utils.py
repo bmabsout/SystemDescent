@@ -1,5 +1,5 @@
-import gym
-from gym import spaces
+import gymnasium as gym
+from gymnasium import spaces
 import numpy as np
 import time
 from pyquaternion import Quaternion
@@ -13,13 +13,14 @@ class FlattenWrapper(gym.Wrapper):
 
     def step(self, action):
         unflattened_act = spaces.unflatten(self.env.action_space, action)
-        observation, reward, done, info = self.env.step(unflattened_act)
+        observation, reward, done, truncated, info = self.env.step(unflattened_act)
         flattened_obs = spaces.flatten(self.env.observation_space, observation)
-        return flattened_obs, np.sum(reward), done, info
+        return flattened_obs, np.sum(reward), done, truncated, info
 
 
-    def reset(self):
-        return spaces.flatten(self.env.observation_space, super().reset())
+    def reset(self, seed=None, options=None):
+        obs, i = super().reset(seed=seed, options=None)
+        return spaces.flatten(self.env.observation_space, obs), i
 
 
 def sync(i, start_time, timestep):
