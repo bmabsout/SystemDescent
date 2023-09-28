@@ -21,12 +21,31 @@ class Obs(TypedDict):
     velocity: np.ndarray
     position: np.ndarray
 
+class State(TypedDict):
+    plate_rot: spaces.Box
+    plate_vel: spaces.Tuple   # convention: 0 still, 1 increase, 2 decrease
+    ball_pos:  spaces.Box
+    ball_vel:  spaces.Box
+
+
 class AmazingBallEnv(gym.Env):
+    """
+    Whether make the rotation of the plate as observation
+    Whether make the ang velo of the plate as observation
+        - the action is chosen to be the setpoint of rotation
+        - If the servo is using PID to tilt the plate, then the rotation and angular velocity is visible
+        - Consider the DNN would control the entire sys, then the two param should be part of the observation
+
+    Design philosophy:
+        the environment is completely described by the state
+        per reset/step, the environment only acts upon state
+        From the observation would then be derived from the state
+        Under this principle, the visible and hidden observation can be chosen as a subset of the state
+    """
 
     metadata = {'render.modes': ['human', 'human_describe']}
 
     def __init__(self,
-                 freq: int=50,
                  render_mode="human",
                  plate_angular_v = np.pi / 6,  # assuming 30 degree / sec
                  plate_max_rotation = np.pi / 6, # the max rotation along both axis is 30 deg
@@ -46,19 +65,21 @@ class AmazingBallEnv(gym.Env):
 
         #### Create action and observation spaces ##################
         self.action_space = self._actionSpace()
-        self.observation_space = self._obs_space()
-        self.init_observation_space = self._init_obs_space()
 
-        #### Maintain current observvation #########################
-        self.obs = self.init_observation_space.sample()
+        ### Maintain all obj state, so observation can be chosen as a subset #####
+        self.state = self._init_state_space().sample()
         self.act = None
 
         #### Housekeeping ##########################################
         self.render_mode = render_mode
-        self.first_render_call = True
 
     def seed(self, seed: int):
         np.random.seed(seed)
+
+    def _gather_obs(self):
+        """ Given a fully updated state, gather the observation """
+        obs_keys = ['plate_rot', 'ball_pos', 'ball_vel']
+        return {k: self.state[k] for k in obs_keys}
 
     def _render_human(self):
         raise NotImplementedError
@@ -66,9 +87,12 @@ class AmazingBallEnv(gym.Env):
     def _render_human_describe(self):
         print(f"[INFO] render ---",
                 f"act {self.act}",
-                f"———  plat.rot {np.array2string(self.obs['rotation'], precision=5)}",
-                f"———  velocity {np.array2string(self.obs['velocity'], precision=5)}",
-                f"———  position {np.array2string(self.obs['position'], precision=5)}")
+                f"———  plat.rot {np.array2string(self.state['plate_rot'], precision=5)}",
+                f"———  ball.pos {np.array2string(self.state['ball_pos'], precision=5)}",
+                f"———  ball.vel {np.array2string(self.state['ball_vel'], precision=5)}")
+                # f"———  plat.rot {np.array2string(self.obs['rotation'], precision=5)}",
+                # f"———  velocity {np.array2string(self.obs['velocity'], precision=5)}",
+                # f"———  position {np.array2string(self.obs['position'], precision=5)}")
 
     def render(self):
         if self.render_mode is "human":
@@ -78,49 +102,51 @@ class AmazingBallEnv(gym.Env):
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        init_obs = self.init_observation_space.sample()
-        self.obs = Obs(**init_obs)
+        self.state = self._init_state_space().sample()
         self.render()
-        return self.init_observation_space.sample(), self._get_info()
+        print('reset request')
+        print(self._gather_obs())
+        return self._gather_obs(), self._get_info()
 
 
     def _step_plate(self, action):
         """
         Based on action, step on the rotation of the plate only
         """
-        def act2rot(act_n):
-            if act_n == 0:
-                return 0
-            elif act_n == 1:
-                return self.plate_angular_v * self.dt
-            elif act_n == 2:
-                return -self.plate_angular_v * self.dt
-            
-        plate_rot_x = self.obs["rotation"][0]
-        plate_rot_y = self.obs["rotation"][1]
-        self.obs["rotation"][0] = np.clip(plate_rot_x + act2rot(action[0]), -self.plate_max_rotation, self.plate_max_rotation)
-        self.obs["rotation"][1] = np.clip(plate_rot_y + act2rot(action[1]), -self.plate_max_rotation, self.plate_max_rotation)
+        def _assign_tuple_element(t, i, v):
+            l = list(t)
+            l[i] = v
+            return tuple(l)
+
+        def _step_rot_axis(i):
+            sp = action[i]
+            if abs(self.state["plate_rot"][i] - sp) <= self.plate_angular_v * self.dt:
+                self.state["plate_rot"][i] = sp
+                _assign_tuple_element(self.state["plate_vel"], i, 0)
+            else:
+                self.state["plate_rot"][i] += np.sign(sp - self.state["plate_rot"][i]) * self.plate_angular_v * self.dt
+                _assign_tuple_element(self.state["plate_vel"], i, 1) if sp > self.state["plate_rot"][i] else _assign_tuple_element(self.state["plate_vel"], i, 2)
+            self.state["plate_rot"][i] = np.clip(self.state["plate_rot"][i], -self.plate_max_rotation, self.plate_max_rotation)
+
+        _step_rot_axis(0)
+        _step_rot_axis(1)
+
 
     def _step_ball(self):
         """
         Based on the plate rotation, step on the ball
         """
-        plate_rot_x = self.obs["rotation"][0]
-        plate_rot_y = self.obs["rotation"][1]
-        ball_pos_x = self.obs["position"][0]
-        ball_pos_y = self.obs["position"][1]
-        ball_vel_x = self.obs["velocity"][0]
-        ball_vel_y = self.obs["velocity"][1]
+        def _step_ball_axis(i):
+            ball_pos = self.state["ball_pos"][i]
+            ball_vel = self.state["ball_vel"][i]
+            plate_rot = self.state["plate_rot"][i]
+            ball_vel = ball_vel + self.G * np.sin(plate_rot) * self.dt
+            ball_pos = ball_pos + ball_vel * self.dt
+            self.state["ball_vel"][i] = np.clip(ball_vel, -self.ball_max_velocity, self.ball_max_velocity)
+            self.state["ball_pos"][i] = np.clip(ball_pos, -self.ball_max_position, self.ball_max_position)
 
-        ball_vel_x = ball_vel_x + self.G * np.sin(plate_rot_x) * self.dt
-        ball_vel_y = ball_vel_y + self.G * np.sin(plate_rot_y) * self.dt
-        ball_pos_x = ball_pos_x + ball_vel_x * self.dt
-        ball_pos_y = ball_pos_y + ball_vel_y * self.dt
-
-        self.obs["velocity"][0] = np.clip(ball_vel_x, -self.ball_max_velocity, self.ball_max_velocity)
-        self.obs["velocity"][1] = np.clip(ball_vel_y, -self.ball_max_velocity, self.ball_max_velocity)
-        self.obs["position"][0] = np.clip(ball_pos_x, -self.ball_max_position, self.ball_max_position)
-        self.obs["position"][1] = np.clip(ball_pos_y, -self.ball_max_position, self.ball_max_position)
+        _step_ball_axis(0)
+        _step_ball_axis(1)
 
     def step(self, action):
         self.act = action
@@ -128,53 +154,51 @@ class AmazingBallEnv(gym.Env):
         self._step_ball() 
         info = self._get_info()
         self.render()
-        return self.obs, 0, False, False, info
-    
-
-        # self.obs = Obs(**self.init_observation_space.sample())
+        return self._gather_obs(), 0, False, False, info
 
     def _actionSpace(self):
         """
-        action[0] is the x-axis rotation of the plate. value 0: no rotate; 1:positive rotate; 2:negative rotate
-        action[1] ...... y-axis ....    
+        The action is a 2D vector, each is the setpoint (plate rotation) along each axis
         """
-        return spaces.MultiDiscrete([3,3])
+        return spaces.Box(
+            low=np.array([-self.plate_max_rotation, -self.plate_max_rotation]),
+            high=np.array([self.plate_max_rotation, self.plate_max_rotation]),
+        )
 
-    def _init_obs_space(self):
+    def _state_space(self):
         shape = 2
-        return spaces.Dict(ObsSpaces(
-            position = spaces.Box(
-                low=np.tile(-0.5, shape),
-                high=np.tile(0.5, shape),
+        return spaces.Dict(State(
+            plate_rot = spaces.Box(
+                low=np.tile(-self.plate_max_rotation, shape),
+                high=np.tile(self.plate_max_rotation, shape)
             ),
-            velocity = spaces.Box(
-                low=np.tile(-0.5, shape),
-                high=np.tile(0.5, shape),
-            ),
-            rotation = spaces.Box(
-                low=np.tile(-self.plate_max_rotation/3, shape),
-                high=np.tile(self.plate_max_rotation/3, shape)
-            )
-        ))
-
-    def _obs_space(self):
-        """
-        Consideration, the max ball speed can be inferred from max angle. Thus the true ball speed can be calculated. 
-        Since action is now limited, the plate theta should also be part of the obs_space"""
-        shape = 2
-        return spaces.Dict(ObsSpaces(
-            position = spaces.Box(
+            plate_vel = spaces.Tuple((spaces.Discrete(3), spaces.Discrete(3))),
+            ball_pos = spaces.Box(
                 low=np.tile(-self.ball_max_position, shape),
                 high=np.tile(self.ball_max_position, shape),
             ),
-            velocity = spaces.Box(
+            ball_vel = spaces.Box(
                 low=np.tile(-self.ball_max_velocity, shape),
                 high=np.tile(self.ball_max_velocity, shape),
-            ), 
-            rotation = spaces.Box(
-                low=np.tile(-self.plate_max_rotation, shape),
-                high=np.tile(self.plate_max_rotation, shape)
-            )
+            ),
+        ))
+
+    def _init_state_space(self):
+        shape = 2
+        return spaces.Dict(State(
+            plate_rot = spaces.Box(
+                low=np.tile(-self.plate_max_rotation/3, shape),
+                high=np.tile(self.plate_max_rotation/3, shape)
+            ),
+            plate_vel = spaces.Tuple((spaces.Discrete(3), spaces.Discrete(3))),
+            ball_pos = spaces.Box(
+                low=np.tile(-self.ball_max_position/3, shape),
+                high=np.tile(self.ball_max_position/3, shape),
+            ),
+            ball_vel = spaces.Box(
+                low=np.tile(-self.ball_max_velocity/3, shape),
+                high=np.tile(self.ball_max_velocity/3, shape),
+            ),
         ))
 
     def _get_info(self):
@@ -263,7 +287,8 @@ if __name__ == "__main__":
     i = 0
     while(1):
         input()
-        full_obs, reward, done, truncated, info = env.step(env.action_space.sample())
+        # full_obs, reward, done, truncated, info = env.step(env.action_space.sample())
+        full_obs, reward, done, truncated, info = env.step(np.array([0.1, 0.1]))
         i+=1
 
 
