@@ -15,39 +15,42 @@ def ball_differential_eq(states, actions):
     
     ## Coordinate and notation
 
-        theta_x, theta_y: the respective angle of the plane
-        s_x, s_y            : the position of the ball
-        v_x, v_y            : the velocity of the ball
-        m                   : mass of the ball
-        g                   : gravity
+        plate_rot_x, plate_rot_y          : the respective angle of the plane
+        plate_vel_x, plate_vel_y          : the respective angular velocity of the plane
+        ball_pos_x, ball_pos_y            : the position of the ball
+        ball_vel_x, ball_vel_y            : the velocity of the ball
+        m                                 : mass of the ball
+        g                                 : gravity
 
     ## Math
+        new_plate_rot_i =  plate_rot_i + plate_vel_i * dt 
 
         F * dt = m * dv
-        mg * sin(theta_i) * dt = m * dv_i
+        mg * sin(plate_rot_i) * dt = m * dv_i
 
-        new_v_i = g * sin(theta_i) * dt + v_i
-        new_s_i = v_i * dt + s_i              ## should use v_i or new_v_i 
+        new_v_i = g * sin(plate_rot_i) * dt + v_i
+        new_s_i = new_v_i * dt + s_i               
 
     ## States Space
 
-        The state is a tensor with shape (batch_size, 4). The latter dimension is the following
+        The state is a tensor with shape (batch_size, 8). The latter dimension is the following
+        right now the plate velocity is assumed to be constant
 
-        | Index | Observation | Min | Max |
-        |-------|-------------|-----|-----|
-        | 0     | s_x         | -pi | pi  |
-        | 1     | s_y         | -pi | pi  |
-        | 2     | v_x         | -10 | 10  |
-        | 3     | v_y         | -10 | 10  |
+        | Index   | Observation        | Min | Max |
+        |-------  |-------------       |-----|-----|
+        | 0,1     | pl_rot_x,y         | -pi | pi  |
+        | 2,3     | pl_vel_x,y         | -pi | pi  |
+        | 4,5     | ba_pos_x,y         | -10 | 10  |
+        | 6,7     | ba_vel_x,y         | -10 | 10  |
 
     ## Action Space
 
         The action is a tensor with shape (batch_size, 2). The latter dimension is the following
 
-        | Index | Action     | Min | Max |
-        |-------|------------|-----|-----|
-        | 0     | theta_x    | -10 | 10  |
-        | 1     | theta_y    | -10 | 10  |
+        | Index | Action      | Min | Max |
+        |-------|------------ |-----|-----|
+        | 0     | sp_rot_x    | -10 | 10  |
+        | 1     | sp_rot_y    | -10 | 10  |
 
     ## Reuturn
 
@@ -58,74 +61,53 @@ def ball_differential_eq(states, actions):
     g = tf.constant(10.0)
     m = tf.constant(1.0)
     dt = tf.constant(0.05)
-    max_thetax = tf.constant(np.pi)     ## max tilt of the plane
-    max_thetay = tf.constant(np.pi)     
-    max_ball_sx = tf.constant(10.0)     ## the ball should be confined within the border
-    max_ball_sy = tf.constant(10.0)
+    max_rot_x = tf.constant(np.pi)     ## max tilt of the plane
+    max_rot_y = tf.constant(np.pi)     
+    max_ball_pos_x = tf.constant(10.0)     ## the ball should be confined within the border
+    max_ball_pos_y = tf.constant(10.0)
+    pl_vel  = tf.constant(np.pi / 6)  
 
-    s_x, s_y, v_x, v_y = tf.split(states, num_or_size_splits=4, axis=1) 
-    theta_x, theta_y = tf.split(actions, num_or_size_splits=2, axis=1)
+    pl_rot_x, pl_rot_y,  pl_vel_x, pl_vel_y, ba_pos_x, ba_pos_y, ba_v_x, ba_v_y = tf.split(states, num_or_size_splits=8, axis=1) 
+    sp_x, sp_y = tf.split(actions, num_or_size_splits=2, axis=1)
 
     # clip actions
-    theta_x = tf.clip_by_value(theta_x, -max_thetax, max_thetax)
-    theta_y = tf.clip_by_value(theta_y, -max_thetay, max_thetay)
+    sp_x = tf.clip_by_value(sp_x, -max_rot_x, max_rot_x)
+    sp_y = tf.clip_by_value(sp_y, -max_rot_y, max_rot_y)
+
+    # update plate angular velocity direction, vel is assumed to be constant
+    # if the plate rot is within one update of the setpoint, set rot to setpoint, 
+    # else, set the plate vel to the corresponding direction 
+    dist = abs(dt * pl_vel)
+    if (dist >= abs(sp_x - pl_rot_x)):
+        pl_rot_x = sp_x
+        pl_vel_x = 0
+    else:
+        pl_vel_x = tf.sign(sp_x - pl_rot_x) * pl_vel
+
+    if (dist >= abs(sp_y - pl_rot_y)):
+        pl_rot_y = sp_y
+        pl_vel_y = 0
+    else:
+        pl_vel_y = tf.sign(sp_y - pl_rot_y) * pl_vel
+
+    # update plate rot
+    new_pl_rot_x = tf.clip(pl_rot_x + pl_vel_x * dt, -max_rot_x, max_rot_x)
+    new_pl_rot_y = tf.clip(pl_rot_y + pl_vel_y * dt, -max_rot_y, max_rot_y)
 
     # update states
-    new_v_x = g * tf.sin(theta_x) * dt + v_x
-    new_v_y = g * tf.sin(theta_y) * dt + v_y
-    new_s_x = new_v_x * dt + s_x   # here to debate whether to use v_x or new_v_x, GPT call the curret semi-implicit Euler method
-    new_s_y = new_v_y * dt + s_y
+    new_v_x = g * tf.sin(new_pl_rot_x) * dt + ba_v_x
+    new_v_y = g * tf.sin(new_pl_rot_y) * dt + ba_v_y
+    new_pos_x = new_v_x * dt + ba_pos_x  
+    new_pos_y = new_v_y * dt + ba_pos_y
 
-    # clip states
-    new_s_x = tf.clip_by_value(new_s_x, -max_ball_sx, max_ball_sx)
-    new_s_y = tf.clip_by_value(new_s_y, -max_ball_sy, max_ball_sy)
+    # if new pos is out of bound, set pos to bound and vel to 0
+    if (abs(new_pos_x) >= max_ball_pos_x):
+        new_v_x = 0
+    new_pos_x = tf.clip(new_pos_x, -max_ball_pos_x, max_ball_pos_x)
 
-    new_state = tf.concat([new_s_x, new_s_y, new_v_x, new_v_y], axis=1)
+    if (abs(new_pos_y) >= max_ball_pos_y):
+        new_v_y = 0
+    new_pos_y = tf.clip(new_pos_y, -max_ball_pos_y, max_ball_pos_y)
 
+    new_state = tf.concat([new_pl_rot_x, new_pl_rot_y, pl_vel_x, pl_vel_y, new_pos_x, new_pos_y, new_v_x, new_v_y], axis=1)
     return new_state
-
-ball_x = 0
-plate_rx = 0
-
-def get_sphere_position():
-    # Replace with your logic
-    global ball_x
-    ball_x += 0.01
-    return [ball_x, 0, 0.06]
-
-def get_plate_rotation():
-    global plate_rx
-    plate_rx += 0.01
-    return [plate_rx, 0, 0]  # Roll, Pitch, Yaw
-
-if __name__=='__main__':
-    p.connect(p.GUI)
-    p.setAdditionalSearchPath("sd/envs/amazingball/assets")
-    plate = p.loadURDF("plate.urdf")
-
-    visualShapeId = p.createVisualShape(shapeType=p.GEOM_SPHERE, radius=0.04)
-    sphere = p.createMultiBody(baseVisualShapeIndex=visualShapeId)
-
-    # Delta time (change this value based on your requirement)
-    dt = 0.01
-
-    try:
-        while True:
-            sphere_pos = get_sphere_position()
-            plate_rot = get_plate_rotation()
-
-            # Set sphere position
-            p.resetBasePositionAndOrientation(sphere, sphere_pos, p.getQuaternionFromEuler([0, 0, 0]))
-
-            # Set plate rotation
-            p.resetBasePositionAndOrientation(plate, [0, 0, 0], p.getQuaternionFromEuler(plate_rot))
-
-            time.sleep(dt)
-
-    except KeyboardInterrupt:
-        # Disconnect when script is interrupted
-        p.disconnect()
-
-
-
-        

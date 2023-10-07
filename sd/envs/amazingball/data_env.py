@@ -142,6 +142,9 @@ class AmazingBallEnv(gym.Env):
             plate_rot = self.state["plate_rot"][i]
             ball_vel = ball_vel + self.G * np.sin(plate_rot) * self.dt
             ball_pos = ball_pos + ball_vel * self.dt
+            # if the ball_pos is out of bound, then set the velocity  to  zero
+            if abs(ball_pos) >= self.ball_max_position:
+                ball_vel = 0
             self.state["ball_vel"][i] = np.clip(ball_vel, -self.ball_max_velocity, self.ball_max_velocity)
             self.state["ball_pos"][i] = np.clip(ball_pos, -self.ball_max_position, self.ball_max_position)
 
