@@ -9,6 +9,14 @@ from gymnasium import spaces
 from sd import dfl
 from sd.rl import utils
 from sd.envs.modelable_env import ModelableEnv, ModelableWrapper
+import pygame
+from pygame import gfxdraw
+from sd.envs.amazingball.constant import constants, scale
+
+# from pyvirtualdisplay import Display
+
+# display = Display(visible=0, size=(1400, 900))
+# display.start()
 
 def SetpointedAmazingBallEnv(**kwargs):
     return utils.FlattenWrapper(SetpointWrapper(AmazingBallEnv(**kwargs)))
@@ -23,7 +31,7 @@ class Obs(TypedDict):
 
 class State(TypedDict):
     plate_rot: spaces.Box
-    plate_vel: spaces.Tuple   # convention: 0 still, 1 increase, 2 decrease
+    plate_vel: spaces.Box   
     ball_pos:  spaces.Box
     ball_vel:  spaces.Box
 
@@ -41,21 +49,26 @@ class AmazingBallEnv(gym.Env):
         per reset/step, the environment only acts upon state
         From the observation would then be derived from the state
         Under this principle, the visible and hidden observation can be chosen as a subset of the state
+
+    Convention:
+        plate vel is a tuppe, 0 mean still, 1 mean increase (plate_val), 2 mean decrease (-plate_vel)
     """
 
     metadata = {'render.modes': ['human', 'human_describe']}
 
     def __init__(self,
                  render_mode="human",
-                 plate_angular_v = np.pi / 6,  # assuming 30 degree / sec
-                 plate_max_rotation = np.pi / 6, # the max rotation along both axis is 30 deg
-                 ball_max_velocity = 10,
-                 ball_max_position = 4,
-                 dt = 0.01
+                 plate_angular_v = constants["pl_vel"],  # assuming 30 degree / sec
+                 plate_max_rotation = constants["max_rot_x"], # the max rotation along both axis is 30 deg
+                 ball_max_velocity = np.inf,
+                 ball_max_position = constants["max_ball_pos_x"],
+                 dt = constants["dt"],
+                 M = constants["m"],
+                 G = constants["g"]
                 ):
         #### Constants #############################################
-        self.M = 0.1
-        self.G = 10
+        self.M = M
+        self.G = G
         self.plate_angular_v = plate_angular_v
         self.plate_max_rotation = plate_max_rotation
         self.ball_max_velocity = ball_max_velocity
@@ -73,6 +86,14 @@ class AmazingBallEnv(gym.Env):
         #### Housekeeping ##########################################
         self.render_mode = render_mode
 
+
+        #### Rendering group ####################################
+        self.screen_dim = 1000
+        self.screen = None
+        self.clock = None
+        self.plate_surface = None
+        self.ball_surface = None
+
     def seed(self, seed: int):
         np.random.seed(seed)
 
@@ -82,7 +103,73 @@ class AmazingBallEnv(gym.Env):
         return {k: self.state[k] for k in obs_keys}
 
     def _render_human(self):
-        raise NotImplementedError
+        if self.screen is None:
+            pygame.init()
+            pygame.display.init()
+            pygame.font.init()
+            self.screen = pygame.display.set_mode((self.screen_dim, self.screen_dim))
+            self.screen.fill((255, 255, 255))
+            self.plate_width = self.screen_dim // 2  # width of plate (adjust as needed)
+            self.plate_height = self.screen_dim // 2  # height of plate (adjust as needed)
+            abs_pos_plate_topleft = (self.screen_dim - self.plate_width) // 2, (self.screen_dim - self.plate_height) // 2
+            self.rend_plate = pygame.Rect(
+                abs_pos_plate_topleft[0],
+                abs_pos_plate_topleft[1],
+                self.plate_width,
+                self.plate_height
+            )
+            self.plate_surface = pygame.Surface((self.plate_width, self.plate_height), pygame.SRCALPHA)
+            self.plate_surface.fill((255, 0, 0, 128))  # RGBA where A (alpha) is 128 for 50% transparency
+
+            self.ball_radius = self.plate_width // 24  # radius of ball (adjust as needed)
+            self.circle_surface = pygame.Surface((self.ball_radius * 2, self.ball_radius * 2), pygame.SRCALPHA)  # SRCALPHA makes it transparent
+            self.circle_surface.fill((255, 255, 255, 128))  
+        if self.clock is None:
+            self.clock = pygame.time.Clock()
+
+        running = True
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:  # User clicked close button
+                running = False
+            elif event.type == pygame.KEYDOWN:  # User pressed a key
+                if event.key == pygame.K_q:  # If 'q' key was pressed
+                    running = False
+        if running:
+            self._render_human_draw()
+        else:
+            pygame.quit()
+
+    def _render_human_draw(self):   
+        # do a little text description
+        # print(f'Current setpoint: {self.act}\r', end='')
+
+        ball_pos_x = scale(self.state["ball_pos"][0], (-self.ball_max_position, self.ball_max_position), (self.rend_plate.topleft[0], self.rend_plate.topleft[0] + self.plate_width))
+        ball_pos_y = scale(self.state["ball_pos"][1], (-self.ball_max_position, self.ball_max_position), (self.rend_plate.topleft[1], self.rend_plate.topleft[1] + self.plate_height))
+        self.screen.fill((255, 255, 255))
+        pygame.draw.rect(self.screen, (255, 255, 255), self.rend_plate)
+        self.screen.blit(self.plate_surface, self.rend_plate.topleft)
+        pygame.draw.circle(self.screen, (0, 0, 255), (ball_pos_x, ball_pos_y), self.ball_radius)
+
+        # draw stripe to indicate the rotation of the plate
+        margin = constants['render_stripe_margin']
+        thickness = constants['render_tiltline_thickness']
+        rot_x, rot_y = self.state["plate_rot"]
+        offset = scale(rot_x, (-self.plate_max_rotation, self.plate_max_rotation), (-self.plate_width/2, self.plate_width/2))
+        pygame.draw.line(self.screen, (0, 255, 0), (self.rend_plate.centerx, self.rend_plate.top - margin), (self.rend_plate.centerx + offset, self.rend_plate.top - margin), thickness)
+        pygame.draw.line(self.screen, (0, 255, 0), (self.rend_plate.centerx, self.rend_plate.bottom + margin), (self.rend_plate.centerx + offset, self.rend_plate.bottom + margin), thickness)
+        offset = scale(rot_y, (-self.plate_max_rotation, self.plate_max_rotation), (-self.plate_height/2, self.plate_height/2))
+        pygame.draw.line(self.screen, (0, 255, 0), (self.rend_plate.left - margin, self.rend_plate.centery), (self.rend_plate.left - margin, self.rend_plate.centery + offset), thickness)
+        pygame.draw.line(self.screen, (0, 255, 0), (self.rend_plate.right + margin, self.rend_plate.centery), (self.rend_plate.right + margin, self.rend_plate.centery + offset), thickness)
+
+        # draw big cross spanning the entire screen
+        pygame.draw.line(self.screen, (200, 200, 200), (0, self.screen_dim/2), (self.screen_dim, self.screen_dim/2), 5)
+        pygame.draw.line(self.screen, (200, 200, 200), (self.screen_dim/2, 0), (self.screen_dim/2, self.screen_dim), 5)
+
+        # text group
+        # font = pygame.font.SysFont('Arial', 20)
+
+        pygame.display.flip()
+        pygame.time.wait(int(self.dt*1000)) # wait for dt seconds, .wait's arg is in ms
     
     def _render_human_describe(self):
         print(f"[INFO] render ---",
@@ -90,9 +177,6 @@ class AmazingBallEnv(gym.Env):
                 f"———  plat.rot {np.array2string(self.state['plate_rot'], precision=5)}",
                 f"———  ball.pos {np.array2string(self.state['ball_pos'], precision=5)}",
                 f"———  ball.vel {np.array2string(self.state['ball_vel'], precision=5)}")
-                # f"———  plat.rot {np.array2string(self.obs['rotation'], precision=5)}",
-                # f"———  velocity {np.array2string(self.obs['velocity'], precision=5)}",
-                # f"———  position {np.array2string(self.obs['position'], precision=5)}")
 
     def render(self):
         if self.render_mode is "human":
@@ -122,10 +206,11 @@ class AmazingBallEnv(gym.Env):
             sp = action[i]
             if abs(self.state["plate_rot"][i] - sp) <= self.plate_angular_v * self.dt:
                 self.state["plate_rot"][i] = sp
-                _assign_tuple_element(self.state["plate_vel"], i, 0)
+                self.state["plate_vel"][i] = 0* self.plate_angular_v
             else:
                 self.state["plate_rot"][i] += np.sign(sp - self.state["plate_rot"][i]) * self.plate_angular_v * self.dt
-                _assign_tuple_element(self.state["plate_vel"], i, 1) if sp > self.state["plate_rot"][i] else _assign_tuple_element(self.state["plate_vel"], i, 2)
+                # self.state["plate_vel"] = _assign_tuple_element(self.state["plate_vel"], i, 1) if sp > self.state["plate_rot"][i] else _assign_tuple_element(self.state["plate_vel"], i, 2)
+                self.state["plate_vel"][i] = self.plate_angular_v if sp > self.state["plate_rot"][i] else -self.plate_angular_v
             self.state["plate_rot"][i] = np.clip(self.state["plate_rot"][i], -self.plate_max_rotation, self.plate_max_rotation)
 
         _step_rot_axis(0)
@@ -144,7 +229,7 @@ class AmazingBallEnv(gym.Env):
             ball_pos = ball_pos + ball_vel * self.dt
             # if the ball_pos is out of bound, then set the velocity  to  zero
             if abs(ball_pos) >= self.ball_max_position:
-                ball_vel = 0
+                ball_vel = 0 * ball_vel
             self.state["ball_vel"][i] = np.clip(ball_vel, -self.ball_max_velocity, self.ball_max_velocity)
             self.state["ball_pos"][i] = np.clip(ball_pos, -self.ball_max_position, self.ball_max_position)
 
@@ -175,7 +260,11 @@ class AmazingBallEnv(gym.Env):
                 low=np.tile(-self.plate_max_rotation, shape),
                 high=np.tile(self.plate_max_rotation, shape)
             ),
-            plate_vel = spaces.Tuple((spaces.Discrete(3), spaces.Discrete(3))),
+            # plate_vel = spaces.Tuple((spaces.Discrete(3), spaces.Discrete(3))),
+            plate_vel = spaces.Box(
+                low=np.tile(-self.plate_angular_v, shape),
+                high=np.tile(self.plate_angular_v, shape)
+            ),
             ball_pos = spaces.Box(
                 low=np.tile(-self.ball_max_position, shape),
                 high=np.tile(self.ball_max_position, shape),
@@ -193,7 +282,10 @@ class AmazingBallEnv(gym.Env):
                 low=np.tile(-self.plate_max_rotation/3, shape),
                 high=np.tile(self.plate_max_rotation/3, shape)
             ),
-            plate_vel = spaces.Tuple((spaces.Discrete(3), spaces.Discrete(3))),
+            plate_vel = spaces.Box(
+                low=np.tile(0, shape),
+                high=np.tile(0, shape)
+            ),
             ball_pos = spaces.Box(
                 low=np.tile(-self.ball_max_position/3, shape),
                 high=np.tile(self.ball_max_position/3, shape),
@@ -285,13 +377,20 @@ if __name__ == "__main__":
 
 
     ## Alright, seems working
-    env = AmazingBallEnv(render_mode="human_describe")
+    env = AmazingBallEnv(render_mode="human")
     env.reset()
     i = 0
+
+    # draw a random setpoint
+    spx, spy = None, None
+    ct = 0
     while(1):
-        input()
+        if ct % 30 == 0:
+            spx = np.random.uniform(-env.plate_max_rotation, env.plate_max_rotation)
+            spy = np.random.uniform(-env.plate_max_rotation, env.plate_max_rotation)
         # full_obs, reward, done, truncated, info = env.step(env.action_space.sample())
-        full_obs, reward, done, truncated, info = env.step(np.array([0.1, 0.1]))
+        full_obs, reward, done, truncated, info = env.step(np.array([spx, spy]))
         i+=1
+        ct += 1
 
 
