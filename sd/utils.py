@@ -73,9 +73,6 @@ def np_dict_to_dict_generator(d: dict):
         return dict(map(lambda k: (k,next(iterator_dict[k])), d.keys()))
     return map(lambda i: next_in_dict(), range(size))
 
-def map_dict(f, d):
-    return dict(map(lambda kv: (kv[0], f(kv[1])), d.items()))
-
 class FreqAndCallback(TypedDict):
     freq: int
     callback: Callable[[int], Any]
@@ -120,3 +117,5 @@ class PMean(tf.keras.regularizers.Regularizer):
 
     def get_config(self):
         return {'p': float(self.p)}
+        print("dbg ============== modeled input ------------")
+        print(inputs)

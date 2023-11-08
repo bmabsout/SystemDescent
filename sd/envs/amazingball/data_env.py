@@ -78,6 +78,7 @@ class AmazingBallEnv(gym.Env):
 
         #### Create action and observation spaces ##################
         self.action_space = self._actionSpace()
+        self.state_space =  self._state_space()
 
         ### Maintain all obj state, so observation can be chosen as a subset #####
         self.state = self._init_state_space().sample()
@@ -187,9 +188,7 @@ class AmazingBallEnv(gym.Env):
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         self.state = self._init_state_space().sample()
-        self.render()
-        print('reset request')
-        print(self._gather_obs())
+        # self.render()
         return self._gather_obs(), self._get_info()
 
 
@@ -227,9 +226,14 @@ class AmazingBallEnv(gym.Env):
             plate_rot = self.state["plate_rot"][i]
             ball_vel = ball_vel + self.G * np.sin(plate_rot) * self.dt
             ball_pos = ball_pos + ball_vel * self.dt
-            # if the ball_pos is out of bound, then set the velocity  to  zero
+            # collision handle 1: if the ball_pos is out of bound, then set the velocity  to  zero
+            # if abs(ball_pos) >= self.ball_max_position:
+            #     ball_vel = 0 * ball_vel
+
+            # collision handle 2: if the ball_pos is out of bound, then set the velocity to -vel
             if abs(ball_pos) >= self.ball_max_position:
-                ball_vel = 0 * ball_vel
+                ball_vel = -ball_vel
+
             self.state["ball_vel"][i] = np.clip(ball_vel, -self.ball_max_velocity, self.ball_max_velocity)
             self.state["ball_pos"][i] = np.clip(ball_pos, -self.ball_max_position, self.ball_max_position)
 

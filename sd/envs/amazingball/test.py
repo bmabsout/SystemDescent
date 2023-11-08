@@ -1,63 +1,146 @@
-import pybullet as p
-import time
+import argparse
+from pathlib import Path
+from sd.envs.amazingball.BallKerasModel import amazingball_diff_model
+from sd.envs.amazingball.ModeledAmazingBall import ModeledAmazingBall
+from sd.lyapunov import V_def, actor_def
+from sd import utils
+from typing import Tuple
+from sd.envs.amazingball.abs_utils import flatten_system_state, flatten_setpoint, get_ballstate, get_setpoint
+from tensorflow import keras
 import numpy as np
+import tensorflow as tf
+import gymnasium as gym
 
-# Create a simulation
-physicsClient = p.connect(p.GUI)
+def generate_dataset(env: gym.Env):
+    def gen_sample():
+        """Generates a sample from the environment but assumes that the environment is abs"""
+        while True:
+            _, _ = env.reset()
+            system_state = dict(env.state)
+            yield {"system_state": system_state, "setpoint":{"ball_pos": [0.0, 0.0], "ball_vel": [0.0, 0.0]}} 
+    return gen_sample
 
-# Set the gravity
-p.setGravity(0,0,-10)
-# Add a plane to serve as the ground
-p.createCollisionShape(p.GEOM_PLANE)
-p.createMultiBody(0,0)
+@tf.function
+def step_through(states, setpoints, dynamic, actor, nsteps):
+    """     step through [states] for [nsteps] times with fixed [setpoints] 
+            using the model provided
+            
+            return the [final_states] and accumulated intermediate states [acc_states] 
+    """
+    states = flatten_system_state(states)
+    setpoints = flatten_setpoint(setpoints)
 
-# Create a thin box
-box_half_extents = [1,1,0.1]
-corner_coordinates = [-box_half_extents[0], -box_half_extents[1], -box_half_extents[2]]
+    acc_states = tf.TensorArray(tf.float32, size=nsteps+1)
+    current_states = states
+    acc_states = acc_states.write(0, current_states)
+    for i in range(nsteps):
+        latent_shape = tuple(current_states.shape[0:1]) + tuple(dynamic.input["latent"].shape[1:])
+        current_states = dynamic(
+            { 
+                "plate_rot": current_states[:,0:2], 
+                "plate_vel": current_states[:,2:4], 
+                "ball_pos": current_states[:,4:6], 
+                "ball_vel": current_states[:,6:8],
+                "action": actor({"state":current_states, "setpoint":setpoints}),
+                "latent": tf.random.normal(latent_shape)
+            }, training=True
+        )  
+        current_states = flatten_system_state(current_states)
+        acc_states = acc_states.write(i+1, current_states)
 
-box = p.createMultiBody(1
-    , p.createCollisionShape(p.GEOM_BOX, halfExtents=[1,1,0.1])
-    , basePosition= [0,0,1]
-)
-
-
-# attach the box to the world in its center
-constraint_id = p.createConstraint(box, -1, -1, -1, p.JOINT_POINT2POINT, [0, 0, 0], [0, 0, 0], [0,0,1])
-
-print(p.getNumJoints(box))
-
-# p.setJointMotorControl2(box, joint, p.VELOCITY_CONTROL, targetVelocity=0, force=0, maxVelocity=1, positionGain=0.1, velocityGain=0.1)
-
-# Create a sphere
-sphere_body = p.createMultiBody(1
-    , p.createCollisionShape(p.GEOM_SPHERE, radius=0.2)
-    , basePosition = [0,0,2]
-)
-
-
-# Set the initial position and velocity of the sphere
-# p.resetBasePositionAndOrientation(sphere_body, , [0,0,0,1])
-# p.resetBaseVelocity(sphere_body, [0,0,-1])
-
-# Connect the box to the world with a point-to-point constraint
-# p.createConstraint(box_body, -1, -1, p.JOINT_POINT2POINT, np.array([0,0,0], dtype=np.float32), [0,0,0], [0,0,1])
+    tf_conformed_states = tf.transpose(acc_states.stack(), [1,0,2])  ## put batch dim in front shape=(batch, nsteps, state_dim)
+    return current_states, tf_conformed_states 
 
 
-capsule = p.createMultiBody(
-    baseMass=1,
-    # baseInertialFramePosition=[0,0,0],
-    baseCollisionShapeIndex=p.createCollisionShape(p.GEOM_CAPSULE, radius=0.05, height=1),
-    basePosition=[1,-1,3]
-)
+def save_abs_actor(model):
+    path = Path(utils.latest_model()).parent / 'actor.keras'
+    model.save(path)
 
-# p.setJointMotorControl2(box, constraint_id, p.VELOCITY_CONTROL, targetVelocity=0.1)
-# Set the simulation to run in real time
-p.setRealTimeSimulation(1)
 
-# Step the simulation
-while True:
-    p.stepSimulation()
-    time.sleep(0.01)
+def train():
+    batch_size = 64
 
-# Clean up
-p.disconnect()
+    env = ModeledAmazingBall(render_mode="human")   
+    action_shape        = env.action_space.shape                               # (2,)   
+    system_state_shape  = (8,) 
+    setpoint_shape      = ball_state_shape          = (4,)                            # ball pos and vel
+    actor_input_shape   = (system_state_shape[0] + setpoint_shape[0],)    # (12,)
+
+    dynamics_model = amazingball_diff_model()
+    # dynamics_model = utils.load_checkpoint(utils.latest_model()) 
+    actor = actor_def(system_state_shape, action_shape, input_setpoint_shape = setpoint_shape)
+    # lyapunov_model = V_def(set)   
+    # lyapunov_input_shape = () 
+
+    dataset_spec = { 
+                    "system_state": 
+                                {
+                                    "plate_rot": tf.TensorSpec(shape=(2,), dtype=tf.float32),
+                                    "plate_vel": tf.TensorSpec(shape=(2,), dtype=tf.float32),
+                                    "ball_pos": tf.TensorSpec(shape=(2,), dtype=tf.float32),
+                                    "ball_vel": tf.TensorSpec(shape=(2,), dtype=tf.float32)
+                                },
+                    "setpoint": 
+                                {
+                                    "ball_pos": tf.TensorSpec(shape=(2,), dtype=tf.float32),
+                                    "ball_vel": tf.TensorSpec(shape=(2,), dtype=tf.float32)
+                                }
+                    }   
+    dataset = tf.data.Dataset.from_generator(generate_dataset(env), output_signature=dataset_spec)  
+    batched_dataset = dataset.batch(batch_size).take(1000).cache()   
+
+    optimizer = keras.optimizers.Adam(learning_rate=1e-3)
+    for batch in batched_dataset:
+        with tf.GradientTape() as tape:
+            fin_states, acc_states = step_through(batch['system_state'], batch['setpoint'], dynamics_model, actor, 10)
+            flat_ballstate = get_ballstate(fin_states, format="flat")
+            flat_setpoint = get_setpoint(batch['setpoint'], format='flat')
+            distances = tf.norm(flat_ballstate - flat_setpoint, ord='euclidean', axis=1)
+            loss = tf.sqrt(tf.reduce_mean(distances**2))
+
+        grads = tape.gradient(loss, actor.trainable_variables)
+        optimizer.apply_gradients(zip(grads, actor.trainable_variables))
+
+        print(loss.numpy())
+
+    save_abs_actor(actor)
+
+	
+if __name__=='__main__':
+
+    # declare a new arg parser
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--train', action='store_true')
+    args = parser.parse_args()
+
+
+    setpoints = np.array([[0.0, 0.0, 0.0, 0.0]])
+
+    if args.train:
+        train()
+        exit(0)
+
+    
+    env = ModeledAmazingBall(render_mode="human")
+    env.reset()
+
+    actor = keras.models.load_model(utils.latest_model().parent / "actor.keras")
+
+    while(1):
+        flat_system_states = flatten_system_state(env.state)   # shape = (8,)
+        flat_system_states = np.expand_dims(flat_system_states, axis=0)  # shape = (1,8)
+        action = actor({"state":flat_system_states, "setpoint":setpoints})
+        spx, spy = action[0,0], action[0,1]
+        full_obs, reward, done, truncated, info = env.step(np.array([spx, spy]))
+
+    
+
+
+
+
+
+
+
+
+
+

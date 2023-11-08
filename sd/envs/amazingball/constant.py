@@ -3,7 +3,7 @@ import numpy as np
 constants = {
     'g': 10.0,
     'm': 1.0,
-    'dt': 0.05,
+    'dt': 0.1,
     'max_rot_x': np.pi / 6,
     'max_rot_y': np.pi / 6,
     'max_ball_pos_x': 10.0,

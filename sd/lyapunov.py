@@ -33,9 +33,9 @@ def V_def(state_shape: Tuple[int, ...]):
 	model.summary()
 	return model
 
-def actor_def(state_shape, action_shape):
+def actor_def(state_shape, action_shape, input_setpoint_shape=None):
 	input_state = keras.Input(shape=state_shape)
-	input_set_point = keras.Input(shape=state_shape)
+	input_set_point = keras.Input(shape=input_setpoint_shape) if input_setpoint_shape else keras.Input(shape=state_shape)
 	inputs = layers.Concatenate()([input_state, input_set_point])
 	dense1 = layers.Dense(64, activation='tanh', kernel_regularizer=keras.regularizers.l2(0.01))(inputs)
 	dense2 = layers.Dense(64, activation='tanh', kernel_regularizer=keras.regularizers.l2(0.01))(dense1)
@@ -58,11 +58,11 @@ def generate_dataset(env: gym.Env):
 			# in the drone setting, the parameter is the setpoint. 
 			# angle = np.where(np.abs(np.cos(init_state)) < 0.7, 0.0, init_state) # randomize setpoints
 
-			angle = np.random.uniform(-np.pi/7.0, np.pi/7.0) + np.random.randint(2)*np.pi
-			yield {"state":obs, "setpoint": [np.cos(angle), np.sin(angle), 0.0]}
+			# angle = np.random.uniform(-np.pi/7.0, np.pi/7.0) + np.random.randint(2)*np.pi
+			# yield {"state":obs, "setpoint": [np.cos(angle), np.sin(angle), 0.0]}
 			# chooses only non-sideways angles
 
-			# yield {"state": obs, "setpoint":[1.0, 0.0, 0.0]} 
+			yield {"state": obs, "setpoint":[1.0, 0.0, 0.0]} 
 
 			# yield random setpoint. upright or downright
 			# yield {"state": obs, "setpoint":[1.0, 0.0, 0.0]} if np.random.randint(2) == 1 else {"state": obs, "setpoint":[-1.0,0.0,0.0]}
@@ -181,22 +181,22 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 		maxRepetitionsf = tf.cast(maxRepetitions, tf.dtypes.float32)
 		decrease_by = 1.0/100.0 # should arrive to the target within 100 steps, think about maximizing this parameter
 		line = tf.minimum(decrease_by*repetitionsf, Vx) # how much we would like taking a step to reduce V by
-		proof_of_performance = p_mean( build_piecewise([(-1.0, 0.0), (-0.1, 0.001), (0.0, 0.01), (line, 0.9), (1.0, 1.0)], diff, clipped=True), -1.0)
+		proof_of_performance = p_mean( build_piecewise([(-1.0, 0.0), (-0.1, 1e-5), (0.0, 0.01), (line, 0.9), (1.0, 1.0)], diff, clipped=True), -2.0)
 		# for now proof of performance has a hardcoded piecewise linear function for the ranges that we consider critical (negative values) vs nice to have (above line)
 			
 		non_setpoint_Vx = tf.where(angular_similarities > 0.99, 1.0, Vx)
-		large_elsewhere = p_mean(tf.minimum(non_setpoint_Vx*10, 1.0), 0.0) # making sure non setpoints Vx > 0.1
+		large_elsewhere = p_mean(tf.minimum(non_setpoint_Vx*2, 1.0), -2.0) # making sure non setpoints Vx > 0.1
 
 		dfl = Constraints(0.0,
 			{
 			# "close_angles": scale_gradient(p_mean(as_all, 2.0), 1.0),
-			"close_angles": build_piecewise([(0.0, 0.0), (0.6, 0.01), (0.7, 0.9), (1.0, 1.0)], p_mean(as_all, 2.0)),
+			# "close_angles": build_piecewise([(0.0, 0.0), (0.6, 0.01), (0.7, 0.9), (1.0, 1.0)], p_mean(as_all, 2.0)),
 			"lyapunov": Constraints(0.0, {
 				"pop": proof_of_performance,
 				"large": large_elsewhere,
 				"zero": zero,
-			# # 	# "actor_reg": tf.minimum(transform(actor_reg, 0.0, 1.0, 0.0, 1.1), 1.0),
-			# # 	# "lyapunov_reg": tf.minimum(transform(lyapunov_reg, 0.0, 1.0, 0.0, 1.1), 1.0),
+			# 	# "actor_reg": tf.minimum(transform(actor_reg, 0.0, 1.0, 0.0, 1.1), 1.0),
+			# 	# "lyapunov_reg": tf.minimum(transform(lyapunov_reg, 0.0, 1.0, 0.0, 1.1), 1.0),
 			})
 		})
 
@@ -225,6 +225,8 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 		# tf.print("grads:", grads)
 		# tf.print("trainable:", V.trainable_weights)
 		# tf.print(tf.reduce_mean(list(map(lambda x: tf.reduce_mean(tf.abs(x)), grads))))
+		# mean_grad_size = tf.reduce_mean([ tf.reduce_mean(tf.abs(tensor)) for tensor in grads[0:len(actor.trainable_weights)]])
+		# tf.print(mean_grad_size)
 		optimizer.apply_gradients(zip(grads, actor.trainable_weights + V.trainable_weights))
 
 		return scalar, dfl

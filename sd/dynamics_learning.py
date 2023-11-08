@@ -80,7 +80,7 @@ def generator_2d_batch(generator, batch):
     def flatten_batch(b):
         return tf.reshape(b, shape=tf.concat([[-1], b.shape[2:]], 0))
 
-    generated = generator(utils.map_dict(flatten_batch, batch))
+    generated = generator(utils.map_dict_elems(flatten_batch, batch))
     unflattened = tf.concat([batch_shape, tf.shape(generated)[1:]], 0)
     return tf.reshape(generated, shape=unflattened)
 
