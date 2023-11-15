@@ -3,14 +3,15 @@ import numpy as np
 constants = {
     'g': 10.0,
     'm': 1.0,
-    'dt': 0.1,
+    'dt': 0.02,
     'max_rot_x': np.pi / 6,
     'max_rot_y': np.pi / 6,
     'max_ball_pos_x': 10.0,
     'max_ball_pos_y': 10.0,
-    'pl_vel': np.pi / 6,
+    'pl_vel': np.pi / 3,
     'render_stripe_margin': 20,
-    'render_tiltline_thickness': 15
+    'render_tiltline_thickness': 15,
+    'collision_damping': 0.2
 }
 
 def scale(v, domain, range):

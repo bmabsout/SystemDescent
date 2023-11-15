@@ -8,7 +8,7 @@ from sd import utils
 from sd.envs.amazingball.constant import constants
 
 # @tf.function
-def ball_differential_eq(states, actions, constants=utils.map_dict_elems(lambda x: np.array([x]), constants)):
+def ball_differential_eq(input, constants=utils.map_dict_elems(lambda x: np.array([x]), constants)):
     """
     ## Description
 
@@ -58,6 +58,8 @@ def ball_differential_eq(states, actions, constants=utils.map_dict_elems(lambda 
         New states
 
     """
+    states = input['state']
+    actions = input['action']
     g = tf.constant(constants['g'], dtype=tf.float32)
     m = tf.constant(constants['m'], dtype=tf.float32)
     dt = tf.constant(constants['dt'], dtype=tf.float32)
@@ -66,6 +68,7 @@ def ball_differential_eq(states, actions, constants=utils.map_dict_elems(lambda 
     max_ball_pos_x = tf.constant(constants['max_ball_pos_x'], dtype=tf.float32)     ## the ball should be confined within the border
     max_ball_pos_y = tf.constant(constants['max_ball_pos_y'], dtype=tf.float32)
     pl_vel  = tf.constant(constants['pl_vel'], dtype=tf.float32)   
+    collision_damping = tf.constant(constants['collision_damping'], dtype=tf.float32)
     pl_rot_x, pl_rot_y,  pl_vel_x, pl_vel_y, ba_pos_x, ba_pos_y, ba_v_x, ba_v_y = tf.split(states, num_or_size_splits=8, axis=1) 
 
     sp_x, sp_y = tf.split(actions, num_or_size_splits=2, axis=1)
@@ -108,8 +111,8 @@ def ball_differential_eq(states, actions, constants=utils.map_dict_elems(lambda 
     # collision handle 1: END
 
     # collision handle 2: if new pos is out of bound, set vel to -vel
-    new_v_x = tf.where(condition_x, -new_v_x, new_v_x)
-    new_v_y = tf.where(condition_y, -new_v_y, new_v_y)
+    new_v_x = tf.where(condition_x, -new_v_x * collision_damping, new_v_x)
+    new_v_y = tf.where(condition_y, -new_v_y * collision_damping, new_v_y)
     # collision handle 2: END
 
     # clip ball position
@@ -120,37 +123,12 @@ def ball_differential_eq(states, actions, constants=utils.map_dict_elems(lambda 
     return new_state
 
 def amazingball_diff_model():
-    # input_state = keras.Input(shape=(8,))
-    input_state = {
-        'plate_rot': keras.Input(shape=(2,), name = 'plate_rot'),
-        'plate_vel': keras.Input(shape=(2,), name = 'plate_vel'),
-        'ball_pos': keras.Input(shape=(2,), name = 'ball_pos'),
-        'ball_vel': keras.Input(shape=(2,), name = 'ball_vel'),
-    }
-    input_action = keras.Input(shape=(2,))
-    latent_input = keras.Input(shape=(0,))
-
     inputs = {
-        **input_state,
-        "action": input_action,
-        "latent": latent_input
+        "state": keras.Input(shape=(8,), name="state"),
+        "action": keras.Input(shape=(2,), name="action"),
+        "latent": keras.Input(shape=(0,), name="latent")
     }
-    # inputs = layers.Concatenate()([input_state, input_action, latent_input])
-    def call_diff_eq(input):
-        state = tf.concat([input['plate_rot'], input['plate_vel'], input['ball_pos'], input['ball_vel']], axis=1)
-        # tf.print("state:", state)
-        flat_output = ball_differential_eq(state, input['action'])
-        unflattened_output = {
-            'plate_rot': flat_output[:, 0:2],
-            'plate_vel': flat_output[:, 2:4],
-            'ball_pos': flat_output[:, 4:6],
-            'ball_vel': flat_output[:, 6:8],
-        }
-        return unflattened_output
-    outputs = layers.Lambda(call_diff_eq)(inputs)
-
-    # model = keras.Model(inputs={"state": input_state, "action": input_action, "latent": latent_input}, outputs=outputs)
-    model = keras.Model(inputs=inputs, outputs=outputs)
+    model = keras.Model(inputs=inputs, outputs=layers.Lambda(ball_differential_eq)(inputs))
     return model
 
 if __name__ == "__main__":

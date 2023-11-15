@@ -5,6 +5,7 @@ import numpy as np
 # import pybullet as p
 # import tensorflow as tf
 from gymnasium import spaces
+import tensorflow as tf
 # from pybullet_utils import bullet_client as bc
 from sd import dfl
 from sd.rl import utils
@@ -18,8 +19,8 @@ from sd.envs.amazingball.constant import constants, scale
 # display = Display(visible=0, size=(1400, 900))
 # display.start()
 
-def SetpointedAmazingBallEnv(**kwargs):
-    return utils.FlattenWrapper(SetpointWrapper(AmazingBallEnv(**kwargs)))
+def FlattenedAmazingBallEnv(**kwargs):
+    return utils.FlattenWrapper(AmazingBallEnv(**kwargs))
 
 class ObsSpaces(TypedDict):
     velocity: spaces.Box
@@ -64,7 +65,8 @@ class AmazingBallEnv(gym.Env):
                  ball_max_position = constants["max_ball_pos_x"],
                  dt = constants["dt"],
                  M = constants["m"],
-                 G = constants["g"]
+                 G = constants["g"],
+                 collision_damping = constants["collision_damping"]
                 ):
         #### Constants #############################################
         self.M = M
@@ -74,14 +76,19 @@ class AmazingBallEnv(gym.Env):
         self.ball_max_velocity = ball_max_velocity
         self.ball_max_position = ball_max_position
         self.dt = dt
+        self.collision_damping = collision_damping
         #### Compute constants #####################################
 
         #### Create action and observation spaces ##################
         self.action_space = self._actionSpace()
         self.state_space =  self._state_space()
+        # self.observation_space =  self._state_space()
+        self.observation_space =  self._flat_state_space()
+        self.setpoint_space = self._flat_setpoint_space()
 
         ### Maintain all obj state, so observation can be chosen as a subset #####
         self.state = self._init_state_space().sample()
+        # self.state = self._state_space().sample()
         self.act = None
 
         #### Housekeeping ##########################################
@@ -100,7 +107,7 @@ class AmazingBallEnv(gym.Env):
 
     def _gather_obs(self):
         """ Given a fully updated state, gather the observation """
-        obs_keys = ['plate_rot', 'ball_pos', 'ball_vel']
+        obs_keys = ['plate_rot', 'plate_vel', 'ball_pos', 'ball_vel']
         return {k: self.state[k] for k in obs_keys}
 
     def _render_human(self):
@@ -135,6 +142,9 @@ class AmazingBallEnv(gym.Env):
             elif event.type == pygame.KEYDOWN:  # User pressed a key
                 if event.key == pygame.K_q:  # If 'q' key was pressed
                     running = False
+            elif event.type == pygame.MOUSEBUTTONUP:
+                self.state["ball_pos"] = (np.array(pygame.mouse.get_pos()) - np.array(self.rend_plate.center))/self.rend_plate.width * self.ball_max_position*2
+                self.state["ball_vel"] = np.array([0, 0])
         if running:
             self._render_human_draw()
         else:
@@ -146,16 +156,26 @@ class AmazingBallEnv(gym.Env):
 
         ball_pos_x = scale(self.state["ball_pos"][0], (-self.ball_max_position, self.ball_max_position), (self.rend_plate.topleft[0], self.rend_plate.topleft[0] + self.plate_width))
         ball_pos_y = scale(self.state["ball_pos"][1], (-self.ball_max_position, self.ball_max_position), (self.rend_plate.topleft[1], self.rend_plate.topleft[1] + self.plate_height))
+        if isinstance(ball_pos_x, tf.Tensor):
+            ball_pos_x = ball_pos_x.numpy().item()
+            ball_pos_y = ball_pos_y.numpy().item()
         self.screen.fill((255, 255, 255))
         pygame.draw.rect(self.screen, (255, 255, 255), self.rend_plate)
         self.screen.blit(self.plate_surface, self.rend_plate.topleft)
         pygame.draw.circle(self.screen, (0, 0, 255), (ball_pos_x, ball_pos_y), self.ball_radius)
+        # pygame.draw.circle(self.screen, (0, 0, 255), (0, 0), self.ball_radius)
 
         # draw stripe to indicate the rotation of the plate
         margin = constants['render_stripe_margin']
         thickness = constants['render_tiltline_thickness']
         rot_x, rot_y = self.state["plate_rot"]
+        if isinstance(rot_x, tf.Tensor):
+            rot_x = rot_x.numpy().item()
+            rot_y = rot_y.numpy().item()
+
         offset = scale(rot_x, (-self.plate_max_rotation, self.plate_max_rotation), (-self.plate_width/2, self.plate_width/2))
+        if isinstance(offset, tf.Tensor):
+            offset = offset.numpy().item()
         pygame.draw.line(self.screen, (0, 255, 0), (self.rend_plate.centerx, self.rend_plate.top - margin), (self.rend_plate.centerx + offset, self.rend_plate.top - margin), thickness)
         pygame.draw.line(self.screen, (0, 255, 0), (self.rend_plate.centerx, self.rend_plate.bottom + margin), (self.rend_plate.centerx + offset, self.rend_plate.bottom + margin), thickness)
         offset = scale(rot_y, (-self.plate_max_rotation, self.plate_max_rotation), (-self.plate_height/2, self.plate_height/2))
@@ -187,9 +207,11 @@ class AmazingBallEnv(gym.Env):
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        self.state = self._init_state_space().sample()
+        self.state = self._state_space().sample()
+        # self.state = self._init_state_space().sample()
         # self.render()
         return self._gather_obs(), self._get_info()
+        # return self.state, self._get_info()
 
 
     def _step_plate(self, action):
@@ -232,7 +254,7 @@ class AmazingBallEnv(gym.Env):
 
             # collision handle 2: if the ball_pos is out of bound, then set the velocity to -vel
             if abs(ball_pos) >= self.ball_max_position:
-                ball_vel = -ball_vel
+                ball_vel = -ball_vel * self.collision_damping
 
             self.state["ball_vel"][i] = np.clip(ball_vel, -self.ball_max_velocity, self.ball_max_velocity)
             self.state["ball_pos"][i] = np.clip(ball_pos, -self.ball_max_position, self.ball_max_position)
@@ -246,6 +268,7 @@ class AmazingBallEnv(gym.Env):
         self._step_ball() 
         info = self._get_info()
         self.render()
+        # return self.state, 0, False, False, info
         return self._gather_obs(), 0, False, False, info
 
     def _actionSpace(self):
@@ -279,6 +302,44 @@ class AmazingBallEnv(gym.Env):
             ),
         ))
 
+    def _flat_state_space(self):
+        shape = 2
+        # Combine low bounds
+        low = np.concatenate([
+            np.tile(-self.plate_max_rotation, shape),
+            np.tile(-self.plate_angular_v, shape),
+            np.tile(-self.ball_max_position, shape),
+            np.tile(-self.ball_max_velocity, shape)
+        ])
+
+        # Combine high bounds
+        high = np.concatenate([
+            np.tile(self.plate_max_rotation, shape),
+            np.tile(self.plate_angular_v, shape),
+            np.tile(self.ball_max_position, shape),
+            np.tile(self.ball_max_velocity, shape)
+        ])
+
+        # Create a single Box space
+        return spaces.Box(low=low, high=high, dtype=np.float32)
+
+    def _flat_setpoint_space(self):
+        shape = 2
+        # Combine low bounds
+        low = np.concatenate([
+            np.tile(-self.ball_max_position, shape),
+            np.tile(-self.ball_max_velocity, shape)
+        ])
+
+        # Combine high bounds
+        high = np.concatenate([
+            np.tile(self.ball_max_position, shape),
+            np.tile(self.ball_max_velocity, shape)
+        ])
+
+        # Create a single Box space
+        return spaces.Box(low=low, high=high, dtype=np.float32)
+
     def _init_state_space(self):
         shape = 2
         return spaces.Dict(State(
@@ -291,12 +352,12 @@ class AmazingBallEnv(gym.Env):
                 high=np.tile(0, shape)
             ),
             ball_pos = spaces.Box(
-                low=np.tile(-self.ball_max_position/3, shape),
-                high=np.tile(self.ball_max_position/3, shape),
+                low=np.tile(-self.ball_max_position/1.2, shape),
+                high=np.tile(self.ball_max_position/1.2, shape),
             ),
             ball_vel = spaces.Box(
-                low=np.tile(-self.ball_max_velocity/3, shape),
-                high=np.tile(self.ball_max_velocity/3, shape),
+                low=np.tile(-1, shape),
+                high=np.tile(1, shape),
             ),
         ))
 

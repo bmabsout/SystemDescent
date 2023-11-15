@@ -17,9 +17,10 @@ from . import utils
 from tqdm import tqdm
 import sd.envs
 
-def V_def(state_shape: Tuple[int, ...]):
+def V_def(state_shape: Tuple[int, ...], input_setpoint_shape=None):
 	input_state = keras.Input(shape=state_shape)
-	input_setpoint = keras.Input(shape=state_shape)
+	# input_setpoint = keras.Input(shape=state_shape)
+	input_setpoint = keras.Input(shape=input_setpoint_shape) if input_setpoint_shape else keras.Input(shape=state_shape)
 	inputs = layers.Concatenate()([input_state, input_setpoint])
 	dense1 = layers.Dense(64, activation='tanh', kernel_regularizer=keras.regularizers.l2(0.01))(inputs)
 	dense2 = layers.Dense(64, activation='tanh', kernel_regularizer=keras.regularizers.l2(0.01))(dense1)
@@ -51,21 +52,19 @@ def generate_dataset(env: gym.Env):
 		"""Generates a sample from the environment but assumes that the environment is a pendulum"""
 		while True:
 			obs, _ = env.reset()
-			obs[2] = obs[2]*7.0
 
-			# the randomization of the setpoint is to force V to be a collection of functions
-			# the each parameter (the setpoint) would corresponding to a classic Lyaupnov function
-			# in the drone setting, the parameter is the setpoint. 
-			# angle = np.where(np.abs(np.cos(init_state)) < 0.7, 0.0, init_state) # randomize setpoints
+			## PENDULUM START
+			# obs[2] = obs[2]*7.0
+			# # angle = np.where(np.abs(np.cos(init_state)) < 0.7, 0.0, init_state) # randomize setpoints
+			# # angle = np.random.uniform(-np.pi/7.0, np.pi/7.0) + np.random.randint(2)*np.pi
+			# # yield {"state":obs, "setpoint": [np.cos(angle), np.sin(angle), 0.0]}
+			# yield {"state": obs, "setpoint":[1.0, 0.0, 0.0]} 
+			# # yield {"state": obs, "setpoint":[1.0, 0.0, 0.0]} if np.random.randint(2) == 1 else {"state": obs, "setpoint":[-1.0,0.0,0.0]}
+			## PENDULUM END
 
-			# angle = np.random.uniform(-np.pi/7.0, np.pi/7.0) + np.random.randint(2)*np.pi
-			# yield {"state":obs, "setpoint": [np.cos(angle), np.sin(angle), 0.0]}
-			# chooses only non-sideways angles
-
-			yield {"state": obs, "setpoint":[1.0, 0.0, 0.0]} 
-
-			# yield random setpoint. upright or downright
-			# yield {"state": obs, "setpoint":[1.0, 0.0, 0.0]} if np.random.randint(2) == 1 else {"state": obs, "setpoint":[-1.0,0.0,0.0]}
+			## AMAZINGBALL START
+			yield {"state": np.array(obs), "setpoint": np.array([0.0, 0.0, 0.0, 0.0])}
+			## AMAZINGBALL END
 	return gen_sample
 
 def save_model(model, name):
@@ -75,28 +74,51 @@ def save_model(model, name):
 	print(str(path))
 	model.save(str(path))
 
-
 pi = tf.constant(math.pi)
 
-@tf.function
+# @tf.function
 def angular_similarity(v1, v2):
-    # angular similarity return 1 if v1 == v2
-	# only the signal for position, not velocity 
     v1_angle = tf.math.atan2(v1[1], v1[0]) # atan2's range [-pi, pi]
     v2_angle = tf.math.atan2(v2[1], v2[0])
     return tf.abs(tf.abs(v1_angle - v2_angle) - pi) / pi
 
+def abs_base_loss_signal(transposed_states, transposed_setpoints):
+	"""Calculate loss from system state and setpoint, without any Lyapunov parts
+	
+	Args:
+		transposed_states shape   : (state_dim:8, batch_size, repeat)
+		transposed_setpoints shape: (state_dim:4, batch_size, repeat)
+
+	Returns:
+		loss value
+	"""
+	raise NotImplementedError("abs_base_loss_signal is not implemented. Use end state loss.")
+
+def abs_fxu_loss(final_states, setpoints):
+	"""Calculate loss from ending states and setpoints, without any Lyapunov parts
+	
+	Args:
+		final_states shape: (batch_size, state_dim:8)
+		setpoints shape   : (batch_size, state_dim:4)
+		
+	Returns:
+		loss tensor scalar
+	"""
+	raise NotImplementedError("abs_fxu_loss is not implemented")
+	
+
 
 def train(batches, dynamics_model, actor, V, state_shape, args):
-	optimizer=keras.optimizers.Adam(lr=args.lr)
-	@tf.function
+	# optimizer=keras.optimizers.Adam(lr=args.lr)
+	optimizer=keras.optimizers.Adam(learning_rate=args.lr)
+	# @tf.function
 	def run_full_model(initial_states, set_points, repeat=1):
 		'''Runs the dynamics model for repeat steps and returns the final state and the states at each step'''
-		# tf.print(initial_states)
 		states = tf.TensorArray(tf.float32, size=repeat)
 		current_states = initial_states
+		batch_size = tf.shape(initial_states)[0]
+		latent_shape = (batch_size,) + tuple(dynamics_model.input["latent"].shape[1:])
 		for i in range(repeat):
-			latent_shape = tuple(current_states.shape[0:1]) + tuple(dynamics_model.input["latent"].shape[1:])
 			current_states = dynamics_model(
 				{ "state": current_states
 				, "action": actor({"state":current_states, "setpoint":set_points})
@@ -121,60 +143,41 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 		repetitions = tf.random.uniform(shape=[], minval=1, maxval=maxRepetitions+1, dtype=tf.dtypes.int32) # whether small minval can shrink the local minimal
 		prev_states = batch["state"]
 		set_points = batch["setpoint"]
+		set_points_dim = tf.shape(set_points)[-1]
 
 		# repetitions is a random int, fxu is the final state after that many steps updates.
 		# states are a collection of states at each step
 		fxu, states = run_full_model(prev_states, set_points,repeat=repetitions)
-
-		# the Lyapunov value at the previous state, i.e. the original state before any update steps as for this batch
-		Vx = V({"state": prev_states, "setpoint": set_points}, training=True) # Why V takes setpoint? only reason is to get V(setpoint)==0 ?
+		Vx = V({"state": prev_states, "setpoint": set_points}, training=True) 
 		
 		# the Lyapunov value at the final state after the update steps
 		V_fxu = V({"state": fxu, "setpoint": set_points}, training=True)
 
-		# rational: repetition is necessary for the controller to solve the problem
-		# however, the Lyaupnov value should decrease along each every step. The long gap would permit the Lyapunov function 
-		# to learn some local minimum
-		#V_fxu = V({"state": states[:,0,:], "setpoint": set_points}, training=True)
-
 		# the Lyapunov value at the setpoint(origin) should be zero
 		# thus a fully trained V(setpoint) should return zero. Thus zero == 1 when sufficiently trained
-		zero = p_mean((1.0-V({"state": set_points, "setpoint": set_points})**0.5), -1.0)
+		if fxu.shape[1] != set_points.shape[1]:
+			zero_states = tf.concat([fxu[:,:set_points_dim], set_points], axis=1)
+		else:
+			zero_states = set_points
+
+		zero = p_mean((1.0-V({"state": zero_states, "setpoint": set_points})**0.5), -1.0)
 		
 		# for condition: V shall decrease along time (i.e. along the update steps)
 		# diff = (Vx - V_fxu)
 
-		# another way to define diff: only penalize the negative delta
 		diff = (Vx - V_fxu)
-		# prev_V = Vx
-		# for i in tf.range(repetitions):
-		# 	next_V = V({"state": states[:,i,:], "setpoint": set_points}, training=True)
-		# 	#diff += tf.nn.leaky_relu(prev_V - next_V, alpha=10**4) / 100
-		# 	norm_diff = (prev_V - next_V + 1)/2.0
-			
-		# 	#diff *= norm_diff**(1.0/repetitions)
-			
-		# 	# second choice
-		# 	diff += (1 - norm_diff)**2 
-		# 	prev_V = next_V
-		# # second choice 
-		# diff = 1 - diff**0.5
 
-		# some reshaping
 		transposed_states = tf.transpose(states, [2,0,1])
-		transposed_setpoints = tf.broadcast_to(tf.expand_dims(tf.transpose(set_points), axis=-1), tf.shape(transposed_states))
+		tmp_ts = tf.expand_dims(tf.transpose(set_points), axis=-1)
+		target_shape = [tmp_ts.shape[0], tmp_ts.shape[1], transposed_states.shape[2]] if transposed_states.shape[0] != tmp_ts.shape[0] else transposed_states.shape
+		# transposed_setpoints = tf.broadcast_to(tmp_ts, tf.shape(transposed_states))
+		transposed_setpoints = tf.broadcast_to(tmp_ts, target_shape)
 		
-		# Q: what is this angular_similarity/close_angle mathematically?
-		# A: angles between 
 		as_all = angular_similarity(transposed_states, transposed_setpoints)
 		angular_similarities = angular_similarity(tf.transpose(fxu)[0:2] ,tf.transpose(set_points)[0:2])
 
-		# for each sample in the batch, there is a loss for the actor. So the reduce_mean is to get the average loss for the batch?
-		# but is actor.loss best to be 0? in this case actor_reg is best to be 1
-		# and why is called _reg?
 		actor_reg = 1 - tf.tanh(tf.reduce_mean(actor.losses))
 		lyapunov_reg = 1 - tf.tanh(tf.reduce_mean(V.losses))
-
 
 		# if near the setpoint, decrease slower. otherwise decrease faster. This shapes the Lyapunov function. 
 		repetitionsf = tf.cast(repetitions, tf.dtypes.float32)
@@ -202,11 +205,11 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 
 		return dfl
 
-	@tf.function
+	# @tf.function
 	def set_gradient_size(gradients, size):
 		return size*gradients/tf.norm(gradients)
 
-	@tf.function
+	# @tf.function
 	def train_step(batch):
 		# for i in tf.range(1):
 		with tf.GradientTape() as tape:
@@ -262,8 +265,16 @@ if __name__ == "__main__":
 	print("env_name:", env_name)
 	env = gym.make(env_name)
 
-	action_shape = env.action_space.shape
-	state_shape = env.observation_space.shape
+	# action_shape = env.action_space.shape
+	# state_shape = env.observation_space.shape
+	action_shape = utils.infer_shape(env, 'action_space')
+	state_shape = utils.infer_shape(env, 'observation_space')
+	try:
+		setpoint_shape = utils.infer_shape(env, 'setpoint_space')
+	except AssertionError:
+		print('setpoint_space not specified in env, using observation_space instead')
+		setpoint_shape = state_shape
+
 	dynamics_model = utils.load_checkpoint(args.ckpt_path)
 	print()
 	print()
@@ -274,16 +285,18 @@ if __name__ == "__main__":
 	actor = (
 			keras.models.load_model(args.ckpt_path.parent / "actor.keras")
 		if args.load_saved else
-			actor_def(state_shape, action_shape)
+			actor_def(state_shape, action_shape, input_setpoint_shape=setpoint_shape)
 	)
 
 	lyapunov_model = (
 			keras.models.load_model(args.ckpt_path.parent / "lyapunov.keras")
 		if args.load_saved else
-			V_def(state_shape)
+			V_def(state_shape, input_setpoint_shape=setpoint_shape)
 	)
 	state_spec = tf.TensorSpec(state_shape)
-	dataset_spec = { "state": state_spec , "setpoint": state_spec}
+	setpoint_spec = tf.TensorSpec(setpoint_shape)
+
+	dataset_spec = { "state": state_spec , "setpoint": setpoint_spec}
 	dataset = tf.data.Dataset.from_generator(generate_dataset(env), output_signature=dataset_spec)
 	batched_dataset = dataset.batch(args.batch_size).take(args.num_batches).cache()
 	train(batched_dataset, dynamics_model, actor, lyapunov_model, state_shape, args)

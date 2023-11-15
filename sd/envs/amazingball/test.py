@@ -1,4 +1,5 @@
 import argparse
+import datetime
 from pathlib import Path
 from sd.envs.amazingball.BallKerasModel import amazingball_diff_model
 from sd.envs.amazingball.ModeledAmazingBall import ModeledAmazingBall
@@ -31,25 +32,31 @@ def step_through(states, setpoints, dynamic, actor, nsteps):
     setpoints = flatten_setpoint(setpoints)
 
     acc_states = tf.TensorArray(tf.float32, size=nsteps+1)
+    acc_actions = tf.TensorArray(tf.float32, size=nsteps)
     current_states = states
     acc_states = acc_states.write(0, current_states)
     for i in range(nsteps):
         latent_shape = tuple(current_states.shape[0:1]) + tuple(dynamic.input["latent"].shape[1:])
+        action = actor({"state":current_states, "setpoint":setpoints})
+
         current_states = dynamic(
             { 
                 "plate_rot": current_states[:,0:2], 
                 "plate_vel": current_states[:,2:4], 
                 "ball_pos": current_states[:,4:6], 
                 "ball_vel": current_states[:,6:8],
-                "action": actor({"state":current_states, "setpoint":setpoints}),
+                "action": action,
                 "latent": tf.random.normal(latent_shape)
             }, training=True
-        )  
+        ) 
+
         current_states = flatten_system_state(current_states)
         acc_states = acc_states.write(i+1, current_states)
+        acc_actions = acc_actions.write(i, action)
 
     tf_conformed_states = tf.transpose(acc_states.stack(), [1,0,2])  ## put batch dim in front shape=(batch, nsteps, state_dim)
-    return current_states, tf_conformed_states 
+    tf_conformed_actions = tf.transpose(acc_actions.stack(), [1,0,2])  ## put batch dim in front shape=(batch, nsteps, action_dim)
+    return current_states, tf_conformed_states, tf_conformed_actions
 
 
 def save_abs_actor(model):
@@ -87,51 +94,62 @@ def train():
                                 }
                     }   
     dataset = tf.data.Dataset.from_generator(generate_dataset(env), output_signature=dataset_spec)  
-    batched_dataset = dataset.batch(batch_size).take(1000).cache()   
+    batched_dataset = dataset.batch(batch_size).take(500).cache().repeat(10)
 
-    optimizer = keras.optimizers.Adam(learning_rate=1e-3)
-    for batch in batched_dataset:
+    optimizer = keras.optimizers.Adam(learning_rate=1e-4)
+
+    train_summary_write, _ = start_logging()
+    for i,batch in enumerate(batched_dataset):
         with tf.GradientTape() as tape:
-            fin_states, acc_states = step_through(batch['system_state'], batch['setpoint'], dynamics_model, actor, 10)
+            # rd is a tensorflow random int
+            cur_min = 5.0 + (i * 45) / 5000  
+            rd = tf.random.uniform(shape=(), minval=int(cur_min), maxval=100, dtype=tf.int32)
+            fin_states, acc_states, acc_actions = step_through(batch['system_state'], batch['setpoint'], dynamics_model, actor, rd)
             flat_ballstate = get_ballstate(fin_states, format="flat")
+            # flat_ballstate = get_ballstate(acc_states, format="flat")
             flat_setpoint = get_setpoint(batch['setpoint'], format='flat')
-            distances = tf.norm(flat_ballstate - flat_setpoint, ord='euclidean', axis=1)
-            loss = tf.sqrt(tf.reduce_mean(distances**2))
+            # distances = tf.norm(flat_ballstate - flat_setpoint, ord='euclidean', axis=1)
+            distances = tf.norm(flat_ballstate[:,:2] - flat_setpoint[:,:2], ord='euclidean', axis=1)
+            action_sizes =  tf.sqrt(tf.reduce_mean(acc_actions**2.0))
+
+            loss = tf.reduce_mean(distances) + 2*action_sizes
 
         grads = tape.gradient(loss, actor.trainable_variables)
         optimizer.apply_gradients(zip(grads, actor.trainable_variables))
 
-        print(loss.numpy())
-
     save_abs_actor(actor)
 
+
+def start_logging():
+    current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    train_log_dir = 'logs/gradient_tape/' + current_time + '/train'
+    test_log_dir = 'logs/gradient_tape/' + current_time + '/test'
+    train_summary_writer = tf.summary.create_file_writer(train_log_dir)
+    test_summary_writer = tf.summary.create_file_writer(test_log_dir)
+    return train_summary_writer, test_summary_writer
 	
 if __name__=='__main__':
 
-    # declare a new arg parser
     parser = argparse.ArgumentParser()
     parser.add_argument('--train', action='store_true')
+    parser.add_argument('-init-ballstate', type=float, nargs=4, default=[0.0, 0.0, 0.0, 0.0], help='initial ball state')
     args = parser.parse_args()
-
-
-    setpoints = np.array([[0.0, 0.0, 0.0, 0.0]])
 
     if args.train:
         train()
         exit(0)
-
     
+    actor = keras.models.load_model( "models/AmazingBall-v0/730715/checkpoints/checkpoint0/actor.keras")
+    setpoints = np.array([[0.0, 0.0, 0.0, 0.0]])
+
     env = ModeledAmazingBall(render_mode="human")
-    env.reset()
-
-    actor = keras.models.load_model(utils.latest_model().parent / "actor.keras")
-
+    obs, info = env.reset()
     while(1):
-        flat_system_states = flatten_system_state(env.state)   # shape = (8,)
-        flat_system_states = np.expand_dims(flat_system_states, axis=0)  # shape = (1,8)
+        # flat_system_states = flatten_system_state(env.state)   # shape = (8,)
+        flat_system_states = np.expand_dims(obs, axis=0)  # shape = (1,8)
         action = actor({"state":flat_system_states, "setpoint":setpoints})
         spx, spy = action[0,0], action[0,1]
-        full_obs, reward, done, truncated, info = env.step(np.array([spx, spy]))
+        obs, reward, done, truncated, info = env.step(np.array([spx, spy]))
 
     
 

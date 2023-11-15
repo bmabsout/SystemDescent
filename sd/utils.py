@@ -11,6 +11,7 @@ import time
 from tqdm.autonotebook import tqdm
 from typing import TypedDict, Optional, Callable, Any
 from . import dfl
+import gymnasium as gym
 
 def map_dict_elems(fn, d):
     return {k: fn(d[k]) for k in d.keys()}
@@ -96,7 +97,6 @@ def train_loop(list_of_batches, train_step, every_n_seconds:Optional[FreqAndCall
                             time_at_reset = time.time()
                     update_description(train_step(batch))
 
-
         if end_of_epoch:
             end_of_epoch(epoch)
 
@@ -119,3 +119,19 @@ class PMean(tf.keras.regularizers.Regularizer):
         return {'p': float(self.p)}
         print("dbg ============== modeled input ------------")
         print(inputs)
+
+
+def infer_shape(env, attribute_name):
+    space = getattr(env, attribute_name, None)
+    assert space is not None, f"env has no attribute {attribute_name}"
+    if isinstance(space, gym.spaces.Discrete):
+        return (1,)
+    elif isinstance(space, gym.spaces.Box):
+        return space.shape
+    elif isinstance(space, gym.spaces.Dict):
+        # count the total number of elements in the dict
+        sub_dims = [v.shape[0] for k, v in space.items()]
+        return (sum(sub_dims),)
+    else:
+        raise Exception(f"unknown space type {type(space)}")
+        

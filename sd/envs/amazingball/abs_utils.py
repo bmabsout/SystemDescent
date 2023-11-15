@@ -27,6 +27,19 @@ def dictionarize_system_state(flattened_state):
     }
     return system_state
 
+def dictionarize_single_system_state(flattened_state):
+    plate_rot = flattened_state[0:2]
+    plate_vel = flattened_state[2:4]
+    ball_pos_system = flattened_state[4:6]
+    ball_vel_system = flattened_state[6:8]
+    system_state = {
+        'plate_rot': plate_rot,
+        'plate_vel': plate_vel,
+        'ball_pos': ball_pos_system,
+        'ball_vel': ball_vel_system
+    }
+    return system_state
+
 def dictionary_setpoint(flattened_setpoint):
     ball_pos_setpoint = flattened_setpoint[:,0:2]
     ball_vel_setpoint = flattened_setpoint[:,2:4]

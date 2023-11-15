@@ -72,3 +72,10 @@ register(
     entry_point='sd.envs.amazingball.env:SetpointedAmazingBallEnv',
     max_episode_steps=400,
 )
+
+
+register(
+    id='AmazingBall-v0',
+    entry_point='sd.envs.amazingball.ModeledAmazingBall:ModeledAmazingBall',
+    max_episode_steps=500,
+)
