@@ -62,7 +62,7 @@
             buildInputs = [
                 pkgs.nixgl.auto.nixGLDefault
                 (pkgs.python3.withPackages (p: with p;[numpy pygame pybullet
-                matplotlib gymnasium tensorflow keras tqdm sd pybox2d mypy dill]))
+                matplotlib gymnasium tensorflow keras tqdm sd pybox2d mypy dill pyquaternion]))
             ];
           }
         );

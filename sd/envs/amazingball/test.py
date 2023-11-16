@@ -17,8 +17,7 @@ def generate_dataset(env: gym.Env):
         """Generates a sample from the environment but assumes that the environment is abs"""
         while True:
             _, _ = env.reset()
-            system_state = dict(env.state)
-            yield {"system_state": system_state, "setpoint":{"ball_pos": [0.0, 0.0], "ball_vel": [0.0, 0.0]}} 
+            yield {"system_state": env.env.state, "setpoint":{"ball_pos": [0.0, 0.0], "ball_vel": [0.0, 0.0]}} 
     return gen_sample
 
 @tf.function

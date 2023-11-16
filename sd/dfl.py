@@ -7,6 +7,12 @@ from typing import NamedTuple, Union, Dict, Tuple
 def tf_pop(tensor, axis):
     return tf.concat([tf.slice(tensor, [0], [axis]), tf.slice(tensor, [axis+1], [-1])], 0)
 
+@tf.custom_gradient
+def adaptive_grads(x, y):
+    def grad(dy):
+        return dy, tf.zeros_like(y)
+    return x, grad
+
 
 @tf.function
 def p_mean(l, p: float, slack=1e-15, default_val=tf.constant(0.0), axis=None):
@@ -20,7 +26,7 @@ def p_mean(l, p: float, slack=1e-15, default_val=tf.constant(0.0), axis=None):
     """
     p = tf.cast(p, tf.float32)
     l = tf.cast(l, tf.float32)
-    p = tf.where(tf.cast(p, tf.float32) < 1e-5, 1e-5, p)
+    p = tf.where(tf.abs(tf.cast(p, tf.float32)) < 1e-5, -1e-5 if p < 0.0 else 1e-5, p)
 
     return tf.cond(tf.reduce_prod(tf.shape(l)) == 0 # condition if an empty array is fed in
         , lambda: tf.broadcast_to(default_val, tf_pop(tf.shape(l), axis)) if axis else default_val
