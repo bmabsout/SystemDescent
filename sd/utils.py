@@ -95,7 +95,7 @@ def train_loop(list_of_batches, train_step, every_n_seconds:Optional[FreqAndCall
                         if(time.time() - time_at_reset > every_n_seconds["freq"]):
                             every_n_seconds["callback"](epoch)
                             time_at_reset = time.time()
-                    update_description(train_step(batch))
+                    update_description(train_step(batch, epoch))
 
         if end_of_epoch:
             end_of_epoch(epoch)

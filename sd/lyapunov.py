@@ -15,7 +15,6 @@ import argparse
 from .dfl import *
 from . import utils
 from tqdm import tqdm
-import sd.envs
 from sd.envs.amazingball.constant import constants
 
 
@@ -51,7 +50,7 @@ def V_def(state_shape: Tuple[int, ...], input_setpoint_shape=None):
     return model
 
 
-def actor_def(state_shape, action_shape, input_setpoint_shape=None):
+def actor_def(state_shape, action_space, input_setpoint_shape=None):
     input_state = keras.Input(shape=state_shape)
     input_set_point = (
         keras.Input(shape=input_setpoint_shape)
@@ -67,11 +66,11 @@ def actor_def(state_shape, action_shape, input_setpoint_shape=None):
     )(dense1)
     # dense2 = layers.Dense(256, activation='sigmoid')(dense1)
     prescaled = layers.Dense(
-        np.squeeze(action_shape),
-        activation="tanh",
+        np.squeeze(action_space.shape),
+        activation="sigmoid",
         kernel_regularizer=keras.regularizers.l2(0.01),
     )(dense2)
-    outputs = prescaled * 2.0
+    outputs = action_space.low + prescaled * (action_space.high - action_space.low)
     model = keras.Model(
         inputs={"state": input_state, "setpoint": input_set_point}, outputs=outputs
     )
@@ -112,7 +111,7 @@ def save_model(model, name):
 pi = tf.constant(math.pi)
 
 
-# @tf.function
+@tf.function
 def angular_similarity(v1, v2):
     v1_angle = tf.math.atan2(v1[1], v1[0])  # atan2's range [-pi, pi]
     v2_angle = tf.math.atan2(v2[1], v2[0])
@@ -121,7 +120,7 @@ def angular_similarity(v1, v2):
 @tf.function
 def ball_pos_distance_dfl(ball_pos1, ball_pos2):
     errors = tf.abs(ball_pos1 - ball_pos2)
-    max_ball_pos = tf.constant([constants["max_ball_pos_x"], constants["max_ball_pos_y"]])
+    # max_ball_pos = tf.constant([constants["max_ball_pos_x"], constants["max_ball_pos_y"]])
     # repeated_max_ball_pos = tf.repeat(max_ball_pos, tf.shape(ball_pos1))
     errors_x = errors[0] / (constants["max_ball_pos_x"] * 2.0)
     errors_y = errors[1] / (constants["max_ball_pos_y"] * 2.0)
@@ -131,24 +130,12 @@ def ball_pos_distance_dfl(ball_pos1, ball_pos2):
     return p_mean(1 - normalized_errors, 0.0)
 
 
-def abs_fxu_loss(final_states, setpoints):
-    """Calculate loss from ending states and setpoints, without any Lyapunov parts
-
-    Args:
-            final_states shape: (batch_size, state_dim:8)
-            setpoints shape   : (batch_size, state_dim:4)
-
-    Returns:
-            loss tensor scalar
-    """
-    raise NotImplementedError("abs_fxu_loss is not implemented")
-
 
 def train(batches, dynamics_model, actor, V, state_shape, args):
     # optimizer=keras.optimizers.Adam(lr=args.lr)
     optimizer = keras.optimizers.Adam(learning_rate=args.lr)
 
-    # @tf.function
+    @tf.function
     def run_full_model(initial_states, set_points, repeat=1):
         """Runs the dynamics model for repeat steps and returns the final state and the states at each step"""
         states = tf.TensorArray(tf.float32, size=repeat)
@@ -169,8 +156,8 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
             states.stack(), [1, 0, 2]
         )  # ok, I think this operation is to put batch back to the first dimension
 
-    # @tf.function
-    def batch_value(batch):
+    @tf.function
+    def batch_value(batch, percent_completion):
         """
         batch: {
                 "state": [batch_size, state_dim]
@@ -180,7 +167,7 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
         state_dim: 3: [cos(theta), sin(theta), theta_dot]
 
         """
-        maxRepetitions = 15
+        maxRepetitions = int(5+100*percent_completion)
         # repetitions = tf.random.uniform(shape=[], minval=10, maxval=maxRepetitions+1, dtype=tf.dtypes.int32)
         repetitions = tf.random.uniform(
             shape=[], minval=1, maxval=maxRepetitions + 1, dtype=tf.dtypes.int32
@@ -199,10 +186,10 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 
         # the Lyapunov value at the setpoint(origin) should be zero
         # thus a fully trained V(setpoint) should return zero. Thus zero == 1 when sufficiently trained
-        if tf.shape(fxu)[1] != tf.shape(set_points)[1]:
-            zero_states = tf.concat([prev_states[:, :set_points_dim], set_points], axis=1)
-        else:
-            zero_states = set_points
+        # if tf.shape(fxu)[1] != tf.shape(set_points)[1]:
+        zero_states = tf.concat([prev_states[:, :set_points_dim], set_points], axis=1)
+        # else:
+        #     zero_states = set_points
 
         zero = p_mean(
             (1.0 - V({"state": zero_states, "setpoint": set_points}) ** 0.5), -1.0
@@ -216,11 +203,7 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
         transposed_states = tf.transpose(states, [2, 0, 1])
 
         tmp_ts = tf.expand_dims(tf.transpose(set_points), axis=-1)
-        target_shape = (
-            [tf.shape(tmp_ts)[0], tf.shape(tmp_ts)[1], tf.shape(transposed_states)[2]]
-            if tf.shape(transposed_states)[0] != tf.shape(tmp_ts)[0]
-            else tf.shape(transposed_states)
-        )
+        target_shape = (tf.shape(tmp_ts)[0], tf.shape(tmp_ts)[1], tf.shape(transposed_states)[2])
         # transposed_setpoints = tf.broadcast_to(tmp_ts, tf.shape(transposed_states))
         transposed_setpoints = tf.broadcast_to(tmp_ts, target_shape)
         """
@@ -267,16 +250,16 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
                 # "close_angles": scale_gradient(p_mean(as_all, 2.0), 1.0),
                 # "close_angles": build_piecewise([(0.0, 0.0), (0.6, 0.01), (0.7, 0.9), (1.0, 1.0)], p_mean(as_all, 2.0)),
                 "close_setpoints": close_to_setpoints,
-                "lyapunov": Constraints(
-                    0.0,
-                    {
-                        "pop": proof_of_performance,
-                        "large": large_elsewhere,
-                        "zero": zero,
-                        # 	# "actor_reg": tf.minimum(transform(actor_reg, 0.0, 1.0, 0.0, 1.1), 1.0),
-                        # 	# "lyapunov_reg": tf.minimum(transform(lyapunov_reg, 0.0, 1.0, 0.0, 1.1), 1.0),
-                    },
-                ),
+                # "lyapunov": Constraints(
+                #     0.0,
+                #     {
+                #         "pop": proof_of_performance,
+                #         "large": large_elsewhere,
+                #         "zero": zero,
+                #         # 	# "actor_reg": tf.minimum(transform(actor_reg, 0.0, 1.0, 0.0, 1.1), 1.0),
+                #         # 	# "lyapunov_reg": tf.minimum(transform(lyapunov_reg, 0.0, 1.0, 0.0, 1.1), 1.0),
+                #     },
+                # ),
             },
         )
 
@@ -286,18 +269,18 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
     def set_gradient_size(gradients, size):
         return size * gradients / tf.norm(gradients)
 
-    # @tf.function
-    def train_step(batch):
+    @tf.function
+    def train_step(batch, epoch):
         # for i in tf.range(1):
         with tf.GradientTape() as tape:
-            dfl = batch_value(batch)
+            dfl = batch_value(batch, epoch/float(args.epochs))
             # loss_value = scale_gradient(loss_value, 1/loss_value**4.0)
 
             # the scalar is best to be 1, so that the loss is best to be 0.
             scalar = dfl_scalar(dfl)
             loss = 1 - scalar
             # tf.print(value)
-        grads = tape.gradient(loss, actor.trainable_weights + V.trainable_weights)
+        grads = tape.gradient(loss, actor.trainable_weights) # + V.trainable_weights)
         # modified_grads = [ (grad_bundle if grad_bundle is None else set_gradient_size(grad_bundle, loss)) for grad_bundle in grads ]
         # tf.print(grads)
         # optimizer.learning_rate = args.lr*transform(scalar, 0.3, 0.7, 1.0, 0.01, clipped=True)
@@ -308,7 +291,7 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
         # mean_grad_size = tf.reduce_mean([ tf.reduce_mean(tf.abs(tensor)) for tensor in grads[0:len(actor.trainable_weights)]])
         # tf.print(mean_grad_size)
         optimizer.apply_gradients(
-            zip(grads, actor.trainable_weights + V.trainable_weights)
+            zip(grads, actor.trainable_weights)# + V.trainable_weights)
         )
 
         return scalar, dfl
@@ -317,8 +300,8 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
         save_model(actor, "actor.keras")
         save_model(lyapunov_model, "lyapunov.keras")
 
-    def train_and_show(batch):
-        scalar, metrics = train_step(batch)
+    def train_and_show(batch, epoch):
+        scalar, metrics = train_step(batch, epoch)
         return f"Scalar: {scalar:.2e}|||{metrics}"
 
     utils.train_loop(
@@ -369,7 +352,7 @@ if __name__ == "__main__":
     actor = (
         keras.models.load_model(args.ckpt_path.parent / "actor.keras")
         if args.load_saved
-        else actor_def(state_shape, action_shape, input_setpoint_shape=setpoint_shape)
+        else actor_def(state_shape, env.action_space, input_setpoint_shape=setpoint_shape)
     )
 
     lyapunov_model = (

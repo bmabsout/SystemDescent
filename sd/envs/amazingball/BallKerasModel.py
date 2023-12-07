@@ -7,7 +7,7 @@ from keras import layers
 from sd import utils
 from sd.envs.amazingball.constant import constants
 
-# @tf.function
+@tf.function
 def ball_differential_eq(input, constants=utils.map_dict_elems(lambda x: np.array([x]), constants)):
     """
     ## Description
@@ -58,17 +58,17 @@ def ball_differential_eq(input, constants=utils.map_dict_elems(lambda x: np.arra
         New states
 
     """
-    states = input['state']
-    actions = input['action']
-    g = tf.constant(constants['g'], dtype=tf.float32)
-    m = tf.constant(constants['m'], dtype=tf.float32)
-    dt = tf.constant(constants['dt'], dtype=tf.float32)
-    max_rot_x = tf.constant(constants['max_rot_x'], dtype=tf.float32)     ## max tilt of the plane
-    max_rot_y = tf.constant(constants['max_rot_y'], dtype=tf.float32)     
-    max_ball_pos_x = tf.constant(constants['max_ball_pos_x'], dtype=tf.float32)     ## the ball should be confined within the border
-    max_ball_pos_y = tf.constant(constants['max_ball_pos_y'], dtype=tf.float32)
-    pl_vel  = tf.constant(constants['pl_vel'], dtype=tf.float32)   
-    collision_damping = tf.constant(constants['collision_damping'], dtype=tf.float32)
+    states = tf.cast(input['state'], dtype=tf.float32)
+    actions = tf.cast(input['action'], dtype=tf.float32)
+    g = tf.cast(constants['g'], dtype=tf.float32)
+    m = tf.cast(constants['m'], dtype=tf.float32)
+    dt = tf.cast(constants['dt'], dtype=tf.float32)
+    max_rot_x = tf.cast(constants['max_rot_x'], dtype=tf.float32)     ## max tilt of the plane
+    max_rot_y = tf.cast(constants['max_rot_y'], dtype=tf.float32)     
+    max_ball_pos_x = tf.cast(constants['max_ball_pos_x'], dtype=tf.float32)     ## the ball should be confined within the border
+    max_ball_pos_y = tf.cast(constants['max_ball_pos_y'], dtype=tf.float32)
+    pl_vel  = tf.cast(constants['pl_vel'], dtype=tf.float32)   
+    collision_damping = tf.cast(constants['collision_damping'], dtype=tf.float32)
     pl_rot_x, pl_rot_y,  pl_vel_x, pl_vel_y, ba_pos_x, ba_pos_y, ba_v_x, ba_v_y = tf.split(states, num_or_size_splits=8, axis=1) 
 
     sp_x, sp_y = tf.split(actions, num_or_size_splits=2, axis=1)

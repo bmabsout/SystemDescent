@@ -138,7 +138,7 @@ if __name__=='__main__':
         train()
         exit(0)
     
-    actor = keras.models.load_model( "models/AmazingBall-v0/730715/checkpoints/checkpoint0/actor.keras")
+    actor = keras.models.load_model( "models/AmazingBall-v0/77d751/checkpoints/checkpoint0/actor.keras")
     setpoints = np.array([[0.0, 0.0, 0.0, 0.0]])
 
     env = ModeledAmazingBall(render_mode="human")
@@ -147,6 +147,7 @@ if __name__=='__main__':
         # flat_system_states = flatten_system_state(env.state)   # shape = (8,)
         flat_system_states = np.expand_dims(obs, axis=0)  # shape = (1,8)
         action = actor({"state":flat_system_states, "setpoint":setpoints})
+        print(action)
         spx, spy = action[0,0], action[0,1]
         obs, reward, done, truncated, info = env.step(np.array([spx, spy]))
 
