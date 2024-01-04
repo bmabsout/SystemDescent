@@ -1,10 +1,6 @@
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    # mach-nix.url = "github:DavHau/mach-nix/master";
-    # mach-nix.inputs.nixpkgs.follows = "nixpkgs";
-    # mach-nix.inputs.pypi-deps-db.follows = "pypi-deps-db";
-    # pypi-deps-db.url = "github:DavHau/pypi-deps-db";
     nixgl.url = "github:guibou/nixGL";
     nixgl.inputs.nixpkgs.follows = "nixpkgs";
     flake-compat = {
@@ -39,16 +35,16 @@
                     rev = "master";
                     sha256 = "a4JjUrsSbAv9SjqZLwuqXhz2x2YhRzZZTytu4X5YWX8=";
                 };
-                nativeBuildInputs = [ pkgs.pkgconfig pkgs.swig ];
+                nativeBuildInputs = [ pkgs.pkg-config pkgs.swig ];
                 doCheck = false;
                 format="setuptools";
               };
             python = pkgs.python3.withPackages (p: with p;[numpy pygame pybullet
-              matplotlib gymnasium tensorflow tqdm keras pybox2d dill ]);
+              matplotlib gymnasium tensorflow tqdm keras pybox2d dill pyquaternion]);
             sd = pkgs.python3.pkgs.buildPythonPackage rec {
                 pname = "sd";
                 version = "0.1.0";
-              
+                catchConflicts = false;
                 src = ./.;
                 doCheck = false;
                 #format = "setuputils";
@@ -61,8 +57,7 @@
         in pkgs.mkShell {
             buildInputs = [
                 pkgs.nixgl.auto.nixGLDefault
-                (pkgs.python3.withPackages (p: with p;[numpy pygame pybullet
-                matplotlib gymnasium tensorflow keras tqdm sd pybox2d mypy dill pyquaternion]))
+                sd
             ];
           }
         );
