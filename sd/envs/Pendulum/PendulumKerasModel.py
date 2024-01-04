@@ -39,4 +39,4 @@ def pendulum_diff_Model():
 if __name__ == "__main__":
     model = pendulum_diff_Model()
     filepath = utils.random_subdir("models/Pendulum-v2")
-    utils.save_checkpoint(model=model, path=filepath, id=0, extra_objs={"pendulum_difference_eq": pendulum_difference_eq})
+    utils.save_checkpoint(model=model, path=filepath, id=0) #, extra_objs={"pendulum_difference_eq": pendulum_difference_eq})

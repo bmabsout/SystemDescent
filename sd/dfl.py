@@ -131,6 +131,7 @@ def scale_gradient(x, scale):
   return x, grad
 
 
+@tf.keras.utils.register_keras_serializable(package='Custom', name='move_toward_zero')
 @tf.custom_gradient
 def move_toward_zero(x):
     #tweaked to be a good activity regularizer for tanh within the dfl framework

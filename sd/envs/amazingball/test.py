@@ -59,7 +59,7 @@ def step_through(states, setpoints, dynamic, actor, nsteps):
 
 
 def save_abs_actor(model):
-    path = Path(utils.latest_model()).parent / 'actor.keras'
+    path = Path(utils.latest_model()).parent / 'actor.tf'
     model.save(path)
 
 
@@ -138,7 +138,7 @@ if __name__=='__main__':
         train()
         exit(0)
     
-    actor = keras.models.load_model( "models/AmazingBall-v0/77d751/checkpoints/checkpoint0/actor.keras")
+    actor = keras.models.load_model( "models/AmazingBall-v0/fced57/checkpoints/checkpoint0/actor.tf")
     setpoints = np.array([[0.0, 0.0, 0.0, 0.0]])
 
     env = ModeledAmazingBall(render_mode="human")

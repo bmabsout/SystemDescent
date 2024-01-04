@@ -3,12 +3,14 @@ import numpy as np
 import time
 from tensorflow import keras
 from keras import layers
-# import dill
+import dill as pickle
 from sd import utils
 from sd.envs.amazingball.constant import constants
+import sd.envs.amazingball.BallKerasModel
 
-@tf.function
-def ball_differential_eq(input, constants=utils.map_dict_elems(lambda x: np.array([x]), constants)):
+@keras.saving.register_keras_serializable(package="sd.envs.amazingball", name="ball_differential_eq")
+# @tf.function
+def ball_differential_eq(constants, input):
     """
     ## Description
 
@@ -58,17 +60,17 @@ def ball_differential_eq(input, constants=utils.map_dict_elems(lambda x: np.arra
         New states
 
     """
-    states = tf.cast(input['state'], dtype=tf.float32)
-    actions = tf.cast(input['action'], dtype=tf.float32)
-    g = tf.cast(constants['g'], dtype=tf.float32)
-    m = tf.cast(constants['m'], dtype=tf.float32)
-    dt = tf.cast(constants['dt'], dtype=tf.float32)
-    max_rot_x = tf.cast(constants['max_rot_x'], dtype=tf.float32)     ## max tilt of the plane
-    max_rot_y = tf.cast(constants['max_rot_y'], dtype=tf.float32)     
-    max_ball_pos_x = tf.cast(constants['max_ball_pos_x'], dtype=tf.float32)     ## the ball should be confined within the border
-    max_ball_pos_y = tf.cast(constants['max_ball_pos_y'], dtype=tf.float32)
-    pl_vel  = tf.cast(constants['pl_vel'], dtype=tf.float32)   
-    collision_damping = tf.cast(constants['collision_damping'], dtype=tf.float32)
+    states = input['state']
+    actions = input['action']
+    g = constants['g']
+    m = constants['m']
+    dt = constants['dt']
+    max_rot_x = constants['max_rot_x']
+    max_rot_y = constants['max_rot_y']
+    max_ball_pos_x = constants['max_ball_pos_x']
+    max_ball_pos_y = constants['max_ball_pos_y']
+    pl_vel  = constants['pl_vel']
+    collision_damping = constants['collision_damping']
     pl_rot_x, pl_rot_y,  pl_vel_x, pl_vel_y, ba_pos_x, ba_pos_y, ba_v_x, ba_v_y = tf.split(states, num_or_size_splits=8, axis=1) 
 
     sp_x, sp_y = tf.split(actions, num_or_size_splits=2, axis=1)
@@ -122,16 +124,32 @@ def ball_differential_eq(input, constants=utils.map_dict_elems(lambda x: np.arra
     new_state = tf.concat([new_pl_rot_x, new_pl_rot_y, pl_vel_x, pl_vel_y, new_pos_x, new_pos_y, new_v_x, new_v_y], axis=1)
     return new_state
 
+@keras.saving.register_keras_serializable(package="CustomLayers", name="DiffEqLayer")
+class DiffEqLayer(keras.layers.Layer):
+    def __init__(self, constants):
+        super().__init__()
+        self.tf_constants = utils.map_dict_elems(lambda x: np.array(x, dtype=np.float32), constants)
+
+    def call(self, inputs):
+        return ball_differential_eq(self.tf_constants, inputs)
+
+    def get_config(self):
+        return {"constants": self.tf_constants}
+
 def amazingball_diff_model():
     inputs = {
         "state": keras.Input(shape=(8,), name="state"),
         "action": keras.Input(shape=(2,), name="action"),
         "latent": keras.Input(shape=(0,), name="latent")
     }
-    model = keras.Model(inputs=inputs, outputs=layers.Lambda(ball_differential_eq)(inputs))
+    
+    model = keras.Model(inputs=inputs, outputs=DiffEqLayer(constants)(inputs))
     return model
 
 if __name__ == "__main__":
     model = amazingball_diff_model()
     filepath = utils.random_subdir("models/AmazingBall-v0")
+    # pickle.dump(model, open("chompe.pd", "wb"))
+    # m = pickle.load(open("chompe.pd", "rb"))
+    # m.
     utils.save_checkpoint(model=model, path=filepath, id=0, extra_objs={"ball_differential_eq": ball_differential_eq})

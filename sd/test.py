@@ -8,6 +8,7 @@ from tensorflow.keras import layers
 # import matplotlib
 # matplotlib.use('TkAgg')
 import matplotlib
+from sd.envs.amazingball.constant import constants
 # matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
@@ -20,24 +21,43 @@ def angle_to_setpoint(angle):
 
 
 def plot_lyapunov(lyapunov, actor, dynamics, set_point, fname, interactive=False):
+    # def calculate_lyapunov(set_point):
+    #     pts = 200
+    #     theta = np.linspace(-np.pi, np.pi, pts).reshape(-1,1)
+    #     theta_dot = np.linspace(-7.0, 7.0,pts).reshape(-1,1)
+
+    #     thetav, theta_dotv = np.meshgrid(theta, theta_dot)
+    #     inputs = np.array([np.cos(thetav), np.sin(thetav), theta_dotv]).T.reshape(-1,3)
+    #     set_points = inputs*0 + set_point
+    #     z = lyapunov({"state": inputs, "setpoint": set_points}, training=False)
+    #     acts = actor({"state":inputs, "setpoint": set_points}, training=False)
+    #     after = dynamics({"state": inputs, "action": acts, "latent": np.random.normal(size=(inputs.shape[0],)+dynamics.input["latent"].shape[1:])}, training=False)
+    #     next_z = lyapunov({"state": after, "setpoint": set_points}, training=False)
+    #     after = after.numpy().reshape(pts,pts,3)
+    #     z = z.numpy().reshape(pts,pts, 1)
+    #     next_z = next_z.numpy().reshape(pts,pts,1)
+    #     acts = acts.numpy().reshape(pts,pts,1)
+    #     return thetav, theta_dotv, z
+    
     def calculate_lyapunov(set_point):
         pts = 200
-        theta = np.linspace(-np.pi, np.pi, pts).reshape(-1,1)
-        theta_dot = np.linspace(-7.0, 7.0,pts).reshape(-1,1)
+        x = np.linspace(-constants["max_ball_pos_x"], constants["max_ball_pos_x"], pts).reshape(-1,1)
+        y = np.linspace(-constants["max_ball_pos_y"], constants["max_ball_pos_y"],pts).reshape(-1,1)
 
-        thetav, theta_dotv = np.meshgrid(theta, theta_dot)
-        inputs = np.array([np.cos(thetav), np.sin(thetav), theta_dotv]).T.reshape(-1,3)
-        set_points = inputs*0 + set_point
+        xv, yv = np.meshgrid(x, y)
+        # pl_rot_x, pl_rot_y,  pl_vel_x, pl_vel_y, ba_pos_x, ba_pos_y, ba_v_x, ba_v_y
+        inputs = np.array([0*xv, 0*xv, 0*xv, 0*xv, xv, yv, 0*xv,0*xv]).reshape(-1, 8)
+        set_points = np.zeros((inputs.shape[0], 4))
         z = lyapunov({"state": inputs, "setpoint": set_points}, training=False)
-        acts = actor({"state":inputs, "setpoint": set_points}, training=False)
-        after = dynamics({"state": inputs, "action": acts, "latent": np.random.normal(size=(inputs.shape[0],)+dynamics.input["latent"].shape[1:])}, training=False)
-        next_z = lyapunov({"state": after, "setpoint": set_points}, training=False)
-        after = after.numpy().reshape(pts,pts,3)
-        z = z.numpy().reshape(pts,pts, 1)
-        next_z = next_z.numpy().reshape(pts,pts,1)
-        acts = acts.numpy().reshape(pts,pts,1)
-        return thetav, theta_dotv, z
-    
+        # acts = actor({"state": inputs, "setpoint": set_points}, training=False)
+        # after = dynamics({"state": inputs, "action": acts, "latent": np.random.normal(size=(inputs.shape[0],) + dynamics.input["latent"].shape[1:])}, training=False)
+        # next_z = lyapunov({"state": after, "setpoint": set_points}, training=False)
+        z = z.numpy().reshape(pts, pts, 1)
+        # next_z = next_z.numpy().reshape(pts,pts,1)
+        # acts = acts.numpy().reshape(pts,pts,1)
+        return xv, yv, z
+        
+
     init=True
 
     def draw_lyapunov(set_point):
@@ -139,7 +159,7 @@ if __name__ == "__main__":
         actor = lambda x,**ignored: np.array([0])
     else:
         try:
-            actor = keras.models.load_model(checkpoint_path.parent / "actor.keras")
+            actor = keras.models.load_model(checkpoint_path.parent / "actor.tf")
             actor.summary()
         except:
             print(f"there is no actor trained for the model {checkpoint_path}")
@@ -148,11 +168,8 @@ if __name__ == "__main__":
     setpoint = angle_to_setpoint(args.angle)
     lyapunov = None
     if not args.no_lyapunov:
-        try:
-            lyapunov = keras.models.load_model(checkpoint_path.parent / "lyapunov.keras")
-            plot_lyapunov(lyapunov, actor, dynamics, setpoint, f'V_{args.angle}', interactive=args.interactive)
-        except:
-            pass
+        lyapunov = keras.models.load_model(checkpoint_path.parent / "lyapunov.tf")
+        plot_lyapunov(lyapunov, actor, dynamics, setpoint, f'V_{args.angle}', interactive=args.interactive)
 
     if args.no_test:
         exit()

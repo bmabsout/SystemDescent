@@ -34,7 +34,7 @@ def random_subdir(location):
 def save_checkpoint(path: Path, model, id, extra_objs={}):
     checkpoint_path = path / "checkpoints" / f"checkpoint{id}"
     checkpoint_path.mkdir(parents=True, exist_ok=True)
-    model_path = checkpoint_path / "model.keras"
+    model_path = checkpoint_path / "model.tf"
     print("saving: ", model_path)
     model.save(str(model_path))
     with open(checkpoint_path / "extra_objs.pb", "wb") as f:
@@ -44,9 +44,9 @@ def load_checkpoint(path: Path):
     custom_objects= pickle.load(open(path.parent / "extra_objs.pb", "rb"))
     for key, val in custom_objects.items():
         custom_objects[key] = tf.function(val)
-    # print(custom_objects)
     # print(path)
-    return keras.models.load_model(path, custom_objects=custom_objects)
+    return keras.models.load_model(path.parent / "model.tf", custom_objects=custom_objects, safe_mode=False)
+    # return pickle.load(open(path.parent / "model.pb", "rb"))
     
 
 def latest_model():
@@ -54,7 +54,7 @@ def latest_model():
     latest_run = latest_subdir(latest_env)
     latest_checkpoint = latest_subdir(latest_run / "checkpoints")
     print(f"using model {latest_checkpoint}")
-    return latest_checkpoint / "model.keras"
+    return latest_checkpoint / "model.tf"
 
 def extract_env_name(checkpoint_path: Path):
     return checkpoint_path.parent.parent.parent.parent.name
