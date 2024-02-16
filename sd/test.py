@@ -133,6 +133,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', type=Path, help="model_path", default=None)
     parser.add_argument('--random_actor', action="store_true")
+    parser.add_argument('--actor_path', type=Path, help="actor path", default=None)
+    parser.add_argument('--lyapunov_path', type=Path, help="actor path", default=None)
     parser.add_argument('--low_actor', action="store_true")
     parser.add_argument('--no_lyapunov', action="store_true")
     parser.add_argument('--no_test', action="store_true")
@@ -159,7 +161,7 @@ if __name__ == "__main__":
         actor = lambda x,**ignored: np.array([0])
     else:
         try:
-            actor = keras.models.load_model(checkpoint_path.parent / "actor.tf")
+            actor = keras.models.load_model(args.actor_path if args.actor_path else checkpoint_path.parent / "actor.tf")
             actor.summary()
         except:
             print(f"there is no actor trained for the model {checkpoint_path}")
@@ -168,7 +170,7 @@ if __name__ == "__main__":
     setpoint = angle_to_setpoint(args.angle)
     lyapunov = None
     if not args.no_lyapunov:
-        lyapunov = keras.models.load_model(checkpoint_path.parent / "lyapunov.tf")
+        lyapunov = keras.models.load_model(args.lyapunov_path if args.lyapunov_path else checkpoint_path.parent / "lyapunov.tf")
         plot_lyapunov(lyapunov, actor, dynamics, setpoint, f'V_{args.angle}', interactive=args.interactive)
 
     if args.no_test:

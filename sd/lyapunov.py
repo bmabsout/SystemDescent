@@ -274,7 +274,7 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
                 # "activity": tf.minimum(1.0, 1.3-(tf.sqrt(tf.reduce_mean((actions*1.5)**2.0))))**0.5,
                 # "close_angles": scale_gradient(p_mean(as_all, 2.0), 1.0),
                 # "close_angles": build_piecewise([(0.0, 0.0), (0.6, 0.01), (0.7, 0.9), (1.0, 1.0)], p_mean(as_all, 2.0)),
-                # "close_setpoints": close_to_setpoints,
+                "close_setpoints": close_to_setpoints,
                 "lyapunov": Constraints(
                     0.0,
                     {
@@ -322,8 +322,8 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
         return scalar, dfl
 
     def save_models(epoch):
-        save_model(actor, "actor.tf")
-        save_model(lyapunov_model, "lyapunov.tf")
+        save_model(actor, Path("controller_ckpts", str(epoch), "actor.tf"))
+        save_model(lyapunov_model, Path("controller_ckpts", str(epoch), "lyapunov.tf"))
 
     def train_and_show(batch, epoch):
         scalar, metrics = train_step(batch, epoch)
@@ -347,7 +347,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--batch_size", type=int, default=128)
-    parser.add_argument("--lr", type=float, default=1e-2)
+    parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--load_saved", action="store_true")
     args = parser.parse_args()
     if args.ckpt_path is None:
