@@ -33,10 +33,12 @@ def V_def(state_shape: Tuple[int, ...]):
 	model.summary()
 	return model
 
-def actor_def(state_shape, action_shape):
+def actor_def(state_shape, action_shape, noise_layer=None):
 	input_state = keras.Input(shape=state_shape)
 	input_set_point = keras.Input(shape=state_shape)
 	inputs = layers.Concatenate()([input_state, input_set_point])
+	if noise_layer:
+		inputs = noise_layer(inputs)
 	dense1 = layers.Dense(64, activation='tanh', kernel_regularizer=keras.regularizers.l2(0.01))(inputs)
 	dense2 = layers.Dense(64, activation='tanh', kernel_regularizer=keras.regularizers.l2(0.01))(dense1)
 	# dense2 = layers.Dense(256, activation='sigmoid')(dense1)
@@ -195,7 +197,7 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 				"pop": proof_of_performance,
 				"large": large_elsewhere,
 				"zero": zero,
-			# # 	# "actor_reg": tf.minimum(transform(actor_reg, 0.0, 1.0, 0.0, 1.1), 1.0),
+				# "actor_reg": tf.minimum(transform(actor_reg, 0.0, 1.0, 0.0, 1.1), 1.0),
 			# # 	# "lyapunov_reg": tf.minimum(transform(lyapunov_reg, 0.0, 1.0, 0.0, 1.1), 1.0),
 			})
 		})
@@ -269,10 +271,16 @@ if __name__ == "__main__":
 	dynamics_model.summary()
 	
 	# if --load_saved is not set, actor_def and V_def are used to define the actor and lyapunov model untrained
+	def added_noise(actor_input):
+		recovered_theta = tf.math.atan2(actor_input[:, 1], actor_input[:, 0])
+		noisy_theta = tf.random.normal(tf.shape(recovered_theta), mean=recovered_theta, stddev=0.1)
+		with_noise = tf.stack([tf.cos(noisy_theta), tf.sin(noisy_theta)], axis=1)
+		return tf.concat([with_noise, actor_input[:, 2:]], axis=1)
+	noise_layer = tf.keras.layers.Lambda(added_noise)
 	actor = (
 			keras.models.load_model(args.ckpt_path.parent / "actor.keras")
 		if args.load_saved else
-			actor_def(state_shape, action_shape)
+			actor_def(state_shape, action_shape, noise_layer=noise_layer)
 	)
 
 	lyapunov_model = (
