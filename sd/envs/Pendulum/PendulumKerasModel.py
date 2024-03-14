@@ -1,5 +1,5 @@
 import tensorflow as tf
-from tensorflow import keras
+import keras
 from keras import layers
 # import dill
 from sd import utils

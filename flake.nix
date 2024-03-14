@@ -34,9 +34,8 @@
               };
               propagatedBuildInputs = with pkgs.python3.pkgs; [numpy types-requests types-protobuf urllib3];
             };
-
             python = pkgs.python3.withPackages (p: with p;[numpy pygame pybullet
-              matplotlib gymnasium tensorflow tqdm keras pybox2d dill pyquaternion types-tqdm types-tensorflow]);
+              matplotlib gymnasium tensorflow-bin tqdm keras dm-tree rich pybox2d dill pyquaternion types-tqdm types-tensorflow]);
             sd = pkgs.python3.pkgs.buildPythonPackage rec {
                 pname = "sd";
                 version = "0.1.0";

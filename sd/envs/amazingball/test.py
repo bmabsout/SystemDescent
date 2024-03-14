@@ -7,7 +7,7 @@ from sd.lyapunov import V_def, actor_def
 from sd import utils
 from typing import Tuple
 from sd.envs.amazingball.abs_utils import flatten_system_state, flatten_setpoint, get_ballstate, get_setpoint
-from tensorflow import keras
+import keras
 import numpy as np
 import tensorflow as tf
 import gymnasium as gym
@@ -138,7 +138,7 @@ if __name__=='__main__':
         train()
         exit(0)
     
-    actor = keras.models.load_model( "models/AmazingBall-v0/fced57/checkpoints/checkpoint0/controller_ckpts/91/actor.tf")
+    actor = keras.models.load_model( "models/AmazingBall-v0/8739c6/checkpoints/checkpoint0/controller_ckpts/62/actor.keras")
     setpoints = np.array([[0.0, 0.0, 0.0, 0.0]])
 
     env = ModeledAmazingBall(render_mode="human")

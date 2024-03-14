@@ -1,3 +1,4 @@
+import os
 import gymnasium as gym
 from gymnasium import spaces
 from gymnasium.utils import seeding
@@ -6,7 +7,7 @@ import math
 from typing import Tuple
 from os import path
 import tensorflow as tf
-from tensorflow import keras
+import keras
 from keras import layers
 from functools import reduce
 from pathlib import Path
@@ -51,6 +52,9 @@ def V_def(state_shape: Tuple[int, ...], input_setpoint_shape=None):
 class ActionLayer(keras.layers.Layer):
     def __init__(self, high, low):
         super().__init__()
+        if type(high) is dict:
+            high = high['config']['value']
+            low = low['config']['value']
         self.high = np.array(high)
         self.low = np.array(low)
 
@@ -81,7 +85,7 @@ def actor_def(state_shape, action_space, input_setpoint_shape=None):
     )(dense1)
     # dense2 = layers.Dense(256, activation='sigmoid')(dense1)
     dense3 = layers.Dense(
-        np.squeeze(action_space.shape),
+        action_space.shape[0],
         activation="linear",
         name="regularize_me"
     )(dense2)
@@ -116,10 +120,9 @@ def generate_dataset(env: gym.Env):
     return gen_sample
 
 
-def save_model(model, name):
-    path = Path(args.ckpt_path.parent, name)
-    args.ckpt_path.parent.mkdir(parents=True, exist_ok=True)
-
+def save_model(model, rel_path):
+    path = Path(args.ckpt_path.parent, rel_path)
+    os.makedirs(path.parent, exist_ok=True)
     print(str(path))
     model.save(str(path))
 
@@ -320,8 +323,8 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
         return scalar, dfl
 
     def save_models(epoch):
-        save_model(actor, Path("controller_ckpts", str(epoch), "actor.tf"))
-        save_model(lyapunov_model, Path("controller_ckpts", str(epoch), "lyapunov.tf"))
+        save_model(actor, Path("controller_ckpts", str(epoch), "actor.keras"))
+        save_model(lyapunov_model, Path("controller_ckpts", str(epoch), "lyapunov.keras"))
 
     def train_and_show(batch, epoch):
         scalar, metrics = train_step(batch, epoch)
@@ -373,13 +376,13 @@ if __name__ == "__main__":
 
     # if --load_saved is not set, actor_def and V_def are used to define the actor and lyapunov model untrained
     actor = (
-        keras.models.load_model(args.ckpt_path.parent / "actor.tf")
+        keras.models.load_model(args.ckpt_path.parent / "actor.keras")
         if args.load_saved
         else actor_def(state_shape, env.action_space, input_setpoint_shape=setpoint_shape)
     )
 
     lyapunov_model = (
-        keras.models.load_model(args.ckpt_path.parent / "lyapunov.tf")
+        keras.models.load_model(args.ckpt_path.parent / "lyapunov.keras")
         if args.load_saved
         else V_def(state_shape, input_setpoint_shape=setpoint_shape)
     )

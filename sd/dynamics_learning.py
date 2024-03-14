@@ -6,8 +6,8 @@ import numpy as np
 from gymnasium.spaces import Box, Discrete
 import argparse
 import time
-from tensorflow import keras
-from tensorflow.keras import layers
+import keras
+from keras import layers
 import pathlib
 from . import utils
 from sd import dfl

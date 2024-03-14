@@ -3,8 +3,8 @@ import sd.envs
 import gymnasium as gym
 import numpy as np
 import tensorflow as tf
-from tensorflow import keras
-from tensorflow.keras import layers
+import keras
+from keras import layers
 # import matplotlib
 # matplotlib.use('TkAgg')
 import matplotlib
@@ -161,7 +161,7 @@ if __name__ == "__main__":
         actor = lambda x,**ignored: np.array([0])
     else:
         try:
-            actor = keras.models.load_model(args.actor_path if args.actor_path else checkpoint_path.parent / "actor.tf")
+            actor = keras.models.load_model(args.actor_path if args.actor_path else checkpoint_path.parent / "actor.keras")
             actor.summary()
         except:
             print(f"there is no actor trained for the model {checkpoint_path}")
@@ -170,7 +170,7 @@ if __name__ == "__main__":
     setpoint = angle_to_setpoint(args.angle)
     lyapunov = None
     if not args.no_lyapunov:
-        lyapunov = keras.models.load_model(args.lyapunov_path if args.lyapunov_path else checkpoint_path.parent / "lyapunov.tf")
+        lyapunov = keras.models.load_model(args.lyapunov_path if args.lyapunov_path else checkpoint_path.parent / "lyapunov.keras")
         plot_lyapunov(lyapunov, actor, dynamics, setpoint, f'V_{args.angle}', interactive=args.interactive)
 
     if args.no_test:

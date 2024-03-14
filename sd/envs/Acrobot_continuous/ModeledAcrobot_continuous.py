@@ -5,7 +5,7 @@ from numpy import sin, cos, pi
 from gym import core, spaces
 from gym.utils import seeding
 import gym.envs
-from tensorflow import keras
+import keras
 
 from gym.envs.registration import register
 

@@ -11,7 +11,7 @@ import sd.envs.drone.signals as signals
 from pyquaternion import Quaternion
 from sd.envs.drone.assets import load_assets
 from sd.envs.drone import attitude_ctrl_env
-from tensorflow import keras
+import keras
 from gym import spaces
 from sd.rl.utils import FlattenWrapper
 

@@ -1,12 +1,8 @@
 import tensorflow as tf
 import numpy as np
-import time
-from tensorflow import keras
-from keras import layers
-import dill as pickle
+import keras
 from sd import utils
 from sd.envs.amazingball.constant import constants
-import sd.envs.amazingball.BallKerasModel
 
 @keras.saving.register_keras_serializable(package="sd.envs.amazingball", name="ball_differential_eq")
 # @tf.function

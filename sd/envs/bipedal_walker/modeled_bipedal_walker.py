@@ -17,7 +17,7 @@ import gym
 from gym import spaces
 from gym.utils import colorize, seeding, EzPickle
 from gym.envs.registration import register
-from tensorflow import keras
+import keras
 
 
 
