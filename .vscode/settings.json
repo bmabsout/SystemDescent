@@ -1,10 +1,2 @@
 {
-    "python.linting.enabled": false,
-    "python.pythonPath": "/nix/store/k0z9n599k02hab8qjjp3ljw065iwjcvg-python3-3.9.6/bin/python",
-    "python.linting.mypyEnabled": true,
-    "python.linting.pylintEnabled": false,
-    "python.linting.banditEnabled": false,
-    "python.linting.flake8Enabled": false,
-    "python.linting.prospectorEnabled": false,
-    "python.linting.pylamaEnabled": false
 }

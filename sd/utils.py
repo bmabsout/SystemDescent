@@ -16,7 +16,6 @@ import gymnasium as gym
 def map_dict_elems(fn, d):
     return {k: fn(d[k]) for k in d.keys()}
 
-
 def to_numpy(tensor):
     return tf.make_ndarray(tf.make_tensor_proto(tensor))
 

@@ -22,25 +22,21 @@
       
     in
     {
-      # enter this python environment by executing `nix shell .`
       devShell = forAllSystems (system: pkgs:
         let
-            pybox2d = pkgs.python3.pkgs.buildPythonPackage rec {
-                pname = "Box2D";
-                version = "2.3.10";
-              
-                src = pkgs.fetchFromGitHub {
-                    owner = "pybox2d";
-                    repo = "pybox2d";
-                    rev = "master";
-                    sha256 = "a4JjUrsSbAv9SjqZLwuqXhz2x2YhRzZZTytu4X5YWX8=";
-                };
-                nativeBuildInputs = [ pkgs.pkg-config pkgs.swig ];
-                doCheck = false;
-                format="setuptools";
+            types-tensorflow = pkgs.python3.pkgs.buildPythonPackage rec {
+              pname = "types-tensorflow";
+              version = "2.15.0.20240314";
+            
+              src = pkgs.fetchPypi {
+                  inherit pname version;
+                  sha256 = "sha256-yOGgoxZsfgR5ajkZXcluIA+P4N8Hp9/FBnUjbl3YvQI=";
               };
+              propagatedBuildInputs = with pkgs.python3.pkgs; [numpy types-requests types-protobuf urllib3];
+            };
+
             python = pkgs.python3.withPackages (p: with p;[numpy pygame pybullet
-              matplotlib gymnasium tensorflow tqdm keras pybox2d dill pyquaternion]);
+              matplotlib gymnasium tensorflow tqdm keras pybox2d dill pyquaternion types-tqdm types-tensorflow]);
             sd = pkgs.python3.pkgs.buildPythonPackage rec {
                 pname = "sd";
                 version = "0.1.0";
