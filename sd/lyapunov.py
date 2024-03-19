@@ -32,10 +32,10 @@ def V_def(state_shape: Tuple[int, ...], input_setpoint_shape=None):
     dense2 = layers.Dense(
         64, activation="tanh", kernel_regularizer=keras.regularizers.l2(0.01)
     )(dense1)
-    outputs = layers.Dense(
-        1, activation="sigmoid", kernel_regularizer=keras.regularizers.l2(0.01)
+    before_sigmoid = layers.Dense(
+        1, activation=None, kernel_regularizer=keras.regularizers.l2(0.01)
     )(dense2)
-    # outputs = layers.Activation("relu")(activation)
+    outputs = layers.Activation("sigmoid")(before_sigmoid)
 
     # outputs = layers.Lambda(lambda x: tf.clip_by_value(x+0.5, 0.0, 1.0))(activation)
     model = keras.Model(
@@ -78,16 +78,19 @@ def actor_def(state_shape, action_space, input_setpoint_shape=None):
     )
     inputs = layers.Concatenate()([input_state, input_set_point])
     dense1 = layers.Dense(
-        64, activation="tanh"
+        64, activation="tanh",
+        kernel_regularizer=keras.regularizers.l2(0.01)
     )(inputs)
     dense2 = layers.Dense(
-        64, activation="tanh"
+        64, activation="tanh",
+        kernel_regularizer=keras.regularizers.l2(0.01)
     )(dense1)
     # dense2 = layers.Dense(256, activation='sigmoid')(dense1)
     dense3 = layers.Dense(
         action_space.shape[0],
         activation="linear",
-        name="regularize_me"
+        name="regularize_me",
+        kernel_regularizer=keras.regularizers.l2(0.01)
     )(dense2)
     sigmoided = layers.Activation("sigmoid")(dense3)
     outputs = ActionLayer(high, low)(sigmoided)
@@ -103,7 +106,8 @@ def generate_dataset(env: gym.Env):
         """Generates a sample from the environment but assumes that the environment is a pendulum"""
         while True:
             obs, _ = env.reset()
-
+            obs = np.array(obs)
+            # obs[0:5] = 0.0
             ## PENDULUM START
             # obs[2] = obs[2]*7.0
             # # angle = np.where(np.abs(np.cos(init_state)) < 0.7, 0.0, init_state) # randomize setpoints
@@ -143,27 +147,44 @@ def ball_pos_distance_dfl(ball_pos1, ball_pos2):
     # repeated_max_ball_pos = tf.repeat(max_ball_pos, tf.shape(ball_pos1))
     errors_x = errors[0] / (constants["max_ball_pos_x"] * 2.0)
     errors_y = errors[1] / (constants["max_ball_pos_y"] * 2.0)
+    errors_vx = errors[2] / (constants["max_ball_vel"] * 2.0)
+    errors_vy = errors[3] / (constants["max_ball_vel"] * 2.0)
 
-    normalized_errors = tf.clip_by_value(tf.stack( [ errors_x, errors_y ] ), 0.0, 1.0)
+    normalized_errors = tf.clip_by_value(tf.stack( [ errors_x, errors_y, errors_vx**4.0, errors_vy**4.0 ] ), 0.0, 1.0)
 
-    return p_mean(1 - normalized_errors, 0.0)
+    return p_mean(1.0 - normalized_errors, 0.0)
 
 
 
 def train(batches, dynamics_model, actor, V, state_shape, args):
     # optimizer=keras.optimizers.Adam(lr=args.lr)
     optimizer = keras.optimizers.Adam(learning_rate=args.lr)
-
+    actor_and_before_tanh = tf.keras.Model(
+            actor.input,
+            {"action": actor.output, "before_tanh": actor.layers[-3].output},
+        )
+    V_and_before_sigmoid = tf.keras.Model(
+            V.input,
+            {"output": V.output, "before_sigmoid": V.layers[-2].output},
+        )
     @tf.function
     def run_full_model(initial_states, set_points, repeat=1):
         """Runs the dynamics model for repeat steps and returns the final state and the states at each step"""
         states = tf.TensorArray(tf.float32, size=repeat)
+        vs = tf.TensorArray(tf.float32, size=repeat)
+        lines = tf.TensorArray(tf.float32, size=repeat)
         actions = tf.TensorArray(tf.float32, size=repeat)
+        before_tanhs = tf.TensorArray(tf.float32, size=repeat)
         current_states = initial_states
+        decrease_by = (
+            10.0 / 100.0
+        )
         batch_size = tf.shape(initial_states)[0]
         latent_shape = (batch_size,) + tuple(dynamics_model.input["latent"].shape[1:])
         for i in range(repeat):
-            current_actions = actor({"state": current_states, "setpoint": set_points})
+            outputs = actor_and_before_tanh({"state": current_states, "setpoint": set_points})
+            current_actions = outputs["action"]
+            before_tanh = outputs["before_tanh"]
             current_states = dynamics_model(
                 {
                     "state": current_states,
@@ -172,11 +193,14 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
                 },
                 training=True,
             )
+            lines = lines.write(i, decrease_by * tf.cast(i, tf.dtypes.float32))
+            vs = vs.write(i, V({"state":current_states, "setpoint": set_points}))
             states = states.write(i, current_states)
             actions = actions.write(i, current_actions)
+            before_tanhs = before_tanhs.write(i, before_tanh)
         return current_states, tf.transpose(
             states.stack(), [1, 0, 2]
-        ), actions.stack()  # ok, I think this operation is to put batch back to the first dimension
+        ), actions.stack(), before_tanhs.stack(), vs.stack(), lines.stack()  # ok, I think this operation is to put batch back to the first dimension
 
     @tf.function
     def batch_value(batch, percent_completion):
@@ -189,8 +213,9 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
         state_dim: 3: [cos(theta), sin(theta), theta_dot]
 
         """
-        # maxRepetitions = int(5+50*percent_completion)
-        maxRepetitions = 10
+        maxRepetitions = int(5+50*percent_completion)
+        # breakpoint()
+        # maxRepetitions = 5 
         # repetitions = tf.random.uniform(shape=[], minval=10, maxval=maxRepetitions+1, dtype=tf.dtypes.int32)
         repetitions = tf.random.uniform(
             shape=[], minval=1, maxval=maxRepetitions + 1, dtype=tf.dtypes.int32
@@ -201,9 +226,10 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 
         # repetitions is a random int, fxu is the final state after that many steps updates.
         # states are a collection of states at each step
-        fxu, states, actions = run_full_model(prev_states, set_points, repeat=repetitions)
-        Vx = V({"state": prev_states, "setpoint": set_points}, training=True)
-
+        fxu, states, actions, before_tanhs, vs, lines = run_full_model(prev_states, set_points, repeat=repetitions)
+        outputs = V_and_before_sigmoid({"state": prev_states, "setpoint": set_points}, training=True)
+        Vx = outputs["output"]
+        Vx_before_sigmoid = outputs["before_sigmoid"]
         # the Lyapunov value at the final state after the update steps
         V_fxu = V({"state": fxu, "setpoint": set_points}, training=True)
         
@@ -223,8 +249,11 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
         # for condition: V shall decrease along time (i.e. along the update steps)
         # diff = (Vx - V_fxu)
 
-        diff = Vx - V_fxu
-
+        diff = Vx - vs
+        # tf.print(Vx)
+        # tf.print("pompe")
+        # tf.print(V_fxu)
+        # tf.print("chchch")
         transposed_states = tf.transpose(states, [2, 0, 1])
 
         tmp_ts = tf.expand_dims(tf.transpose(set_points), axis=-1)
@@ -236,7 +265,7 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
                     transposed_setpoints shape: (state_dim:4, batch_size, repeat)
         """
         close_to_setpoints = ball_pos_distance_dfl(
-            transposed_states[4:6], transposed_setpoints[0:2]
+            transposed_states[4:8], transposed_setpoints[0:4]
         )
         # as_all = angular_similarity(transposed_states, transposed_setpoints)
         # angular_similarities = angular_similarity(tf.transpose(fxu)[0:2] ,tf.transpose(set_points)[0:2])
@@ -248,11 +277,12 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
         repetitionsf = tf.cast(repetitions, tf.dtypes.float32)
         maxRepetitionsf = tf.cast(maxRepetitions, tf.dtypes.float32)
         decrease_by = (
-            1.0 / 100.0
+            10.0 / 100.0
         )  # should arrive to the target within 100 steps, think about maximizing this parameter
         line = tf.minimum(
-            decrease_by * repetitionsf, Vx
+            lines, Vx
         )  # how much we would like taking a step to reduce V by
+        # tf.print(tf.reduce_mean(diff))
         proof_of_performance = p_mean(
             build_piecewise(
                 [(-1.0, 0.0), (-0.1, 1e-5), (0.0, 0.01), (line, 0.9), (1.0, 1.0)],
@@ -263,8 +293,9 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
         )
         # for now proof of performance has a hardcoded piecewise linear function for the ranges that we consider critical (negative values) vs nice to have (above line)
         non_setpoint_Vx = tf.where(
-            ball_pos_distance_dfl(fxu[:, 4:6], set_points[:, 0:2]) > 0.99, 1.0, Vx
+            ball_pos_distance_dfl(tf.transpose(prev_states)[4:8], tf.transpose(set_points)[0:4]) > 0.95, 1.0, Vx
         )
+        small_actions = p_mean(1.0-tf.abs(actions),0)**0.5
         large_elsewhere = p_mean(
             tf.minimum(non_setpoint_Vx * 2, 1.0), -2.0
         )  # making sure non setpoints Vx > 0.1
@@ -275,17 +306,21 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
                 # "activity": tf.minimum(1.0, 1.3-(tf.sqrt(tf.reduce_mean((actions*1.5)**2.0))))**0.5,
                 # "close_angles": scale_gradient(p_mean(as_all, 2.0), 1.0),
                 # "close_angles": build_piecewise([(0.0, 0.0), (0.6, 0.01), (0.7, 0.9), (1.0, 1.0)], p_mean(as_all, 2.0)),
-                "close_setpoints": close_to_setpoints,
+                "close_setpoints": scale_gradient(close_to_setpoints, 1e2),
+                "small_actions": scale_gradient(small_actions, 1e-3),
                 "lyapunov": Constraints(
                     0.0,
                     {
-                        "pop": proof_of_performance,
+                        "pop": scale_gradient(proof_of_performance, 1.0),
+                        # "diff": p_mean((diff/2.0+0.5)**2.0, 0)
                         "large": large_elsewhere,
                         "zero": zero,
-                        # 	# "actor_reg": tf.minimum(transform(actor_reg, 0.0, 1.0, 0.0, 1.1), 1.0),
-                        # 	# "lyapunov_reg": tf.minimum(transform(lyapunov_reg, 0.0, 1.0, 0.0, 1.1), 1.0),
+                        "lyapunov_reg": scale_gradient(tf.minimum(transform(lyapunov_reg, 0.0, 1.0, 0.0, 1.1), 1.0), 1.0),
                     },
                 ),
+                "actor_reg": scale_gradient(p_mean(move_toward_zero(before_tanhs), 0), 1e-4),
+                "V_reg": scale_gradient(p_mean(move_toward_zero(Vx_before_sigmoid), 0), 1.0),
+                # "actor_reg": tf.minimum(transform(actor_reg, 0.0, 1.0, 0.0, 1.1), 1.0),
             },
         )
 

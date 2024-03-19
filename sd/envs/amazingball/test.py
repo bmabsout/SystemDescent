@@ -138,7 +138,7 @@ if __name__=='__main__':
         train()
         exit(0)
     
-    actor = keras.models.load_model( "models/AmazingBall-v0/8739c6/checkpoints/checkpoint0/controller_ckpts/62/actor.keras")
+    actor = keras.models.load_model( "models/AmazingBall-v0/c13ba9/checkpoints/checkpoint0/controller_ckpts/197/actor.keras")
     setpoints = np.array([[0.0, 0.0, 0.0, 0.0]])
 
     env = ModeledAmazingBall(render_mode="human")

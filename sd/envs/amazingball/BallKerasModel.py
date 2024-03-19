@@ -66,6 +66,7 @@ def ball_differential_eq(constants, input):
     max_ball_pos_x = constants['max_ball_pos_x']
     max_ball_pos_y = constants['max_ball_pos_y']
     pl_vel  = constants['pl_vel']
+    max_ball_vel  = constants['max_ball_vel']
     collision_damping = constants['collision_damping']
     pl_rot_x, pl_rot_y,  pl_vel_x, pl_vel_y, ba_pos_x, ba_pos_y, ba_v_x, ba_v_y = tf.split(states, num_or_size_splits=8, axis=1) 
 
@@ -94,8 +95,9 @@ def ball_differential_eq(constants, input):
     new_pl_rot_y = tf.clip_by_value(pl_rot_y + pl_vel_y * dt, -max_rot_y, max_rot_y)
 
     # update states
-    new_v_x = g * tf.sin(new_pl_rot_x) * dt + ba_v_x
-    new_v_y = g * tf.sin(new_pl_rot_y) * dt + ba_v_y
+    new_v_x = tf.clip_by_value(g * tf.sin(new_pl_rot_x) * dt + ba_v_x, -max_ball_vel, max_ball_vel)
+    new_v_y = tf.clip_by_value(g * tf.sin(new_pl_rot_y) * dt + ba_v_y, -max_ball_vel, max_ball_vel)
+
     new_pos_x = new_v_x * dt + ba_pos_x  
     new_pos_y = new_v_y * dt + ba_pos_y
 

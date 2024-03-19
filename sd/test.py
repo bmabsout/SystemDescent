@@ -9,6 +9,7 @@ from keras import layers
 # matplotlib.use('TkAgg')
 import matplotlib
 from sd.envs.amazingball.constant import constants
+import sd.envs.amazingball.BallKerasModel # for serializable diffeq
 # matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
@@ -21,41 +22,20 @@ def angle_to_setpoint(angle):
 
 
 def plot_lyapunov(lyapunov, actor, dynamics, set_point, fname, interactive=False):
-    # def calculate_lyapunov(set_point):
-    #     pts = 200
-    #     theta = np.linspace(-np.pi, np.pi, pts).reshape(-1,1)
-    #     theta_dot = np.linspace(-7.0, 7.0,pts).reshape(-1,1)
-
-    #     thetav, theta_dotv = np.meshgrid(theta, theta_dot)
-    #     inputs = np.array([np.cos(thetav), np.sin(thetav), theta_dotv]).T.reshape(-1,3)
-    #     set_points = inputs*0 + set_point
-    #     z = lyapunov({"state": inputs, "setpoint": set_points}, training=False)
-    #     acts = actor({"state":inputs, "setpoint": set_points}, training=False)
-    #     after = dynamics({"state": inputs, "action": acts, "latent": np.random.normal(size=(inputs.shape[0],)+dynamics.input["latent"].shape[1:])}, training=False)
-    #     next_z = lyapunov({"state": after, "setpoint": set_points}, training=False)
-    #     after = after.numpy().reshape(pts,pts,3)
-    #     z = z.numpy().reshape(pts,pts, 1)
-    #     next_z = next_z.numpy().reshape(pts,pts,1)
-    #     acts = acts.numpy().reshape(pts,pts,1)
-    #     return thetav, theta_dotv, z
-    
     def calculate_lyapunov(set_point):
         pts = 200
-        x = np.linspace(-constants["max_ball_pos_x"], constants["max_ball_pos_x"], pts).reshape(-1,1)
-        y = np.linspace(-constants["max_ball_pos_y"], constants["max_ball_pos_y"],pts).reshape(-1,1)
-
-        xv, yv = np.meshgrid(x, y)
+        x = np.tile(np.linspace(-constants["max_ball_pos_x"], constants["max_ball_pos_x"], pts), (pts,1))
+        y = x.T
         # pl_rot_x, pl_rot_y,  pl_vel_x, pl_vel_y, ba_pos_x, ba_pos_y, ba_v_x, ba_v_y
-        inputs = np.array([0*xv, 0*xv, 0*xv, 0*xv, xv, yv, 0*xv,0*xv]).reshape(-1, 8)
+        pl_rot_x = 0*x+set_point[0]*constants["max_rot_x"]
+        pl_rot_y = 0*x+0*set_point[1]*constants["max_rot_y"]
+        ball_vel_x = 0*x+set_point[0]*constants["max_ball_vel"]
+        ball_vel_y = 0*x+set_point[1]*constants["max_ball_vel"]
+        inputs = np.array([pl_rot_x, pl_rot_y, 0*x, 0*x, x, y, 0*ball_vel_x, 0*ball_vel_y]).reshape(8,-1).T
         set_points = np.zeros((inputs.shape[0], 4))
         z = lyapunov({"state": inputs, "setpoint": set_points}, training=False)
-        # acts = actor({"state": inputs, "setpoint": set_points}, training=False)
-        # after = dynamics({"state": inputs, "action": acts, "latent": np.random.normal(size=(inputs.shape[0],) + dynamics.input["latent"].shape[1:])}, training=False)
-        # next_z = lyapunov({"state": after, "setpoint": set_points}, training=False)
-        z = z.numpy().reshape(pts, pts, 1)
-        # next_z = next_z.numpy().reshape(pts,pts,1)
-        # acts = acts.numpy().reshape(pts,pts,1)
-        return xv, yv, z
+        z = np.array(z).reshape(pts, pts, 1)
+        return x, y, z
         
 
     init=True
@@ -86,9 +66,10 @@ def plot_lyapunov(lyapunov, actor, dynamics, set_point, fname, interactive=False
     def mouse_event(event):
         nonlocal scatter_collections
         nonlocal cur_setpoint
-
+        event.xdata = event.xdata/constants["max_ball_pos_x"]
+        event.ydata = event.ydata/constants["max_ball_pos_y"]
         if event.button == 1:  # Left mouse button
-            set_point = np.array([np.cos(event.xdata), np.sin(event.xdata), event.ydata])
+            set_point = np.array([event.xdata, event.ydata])
             cur_setpoint = set_point
             draw_lyapunov(set_point)
             print(f'theta: {event.xdata} and theta_dot: {event.ydata}')
@@ -98,7 +79,7 @@ def plot_lyapunov(lyapunov, actor, dynamics, set_point, fname, interactive=False
                 scatter_plot.remove()
                 scatter_collections = []
 
-            state = np.array([np.cos(event.xdata), np.sin(event.xdata), event.ydata]).reshape(1,3)
+            state = np.array([event.xdata, event.ydata]).reshape(1,2)
             print(f'Init state set to theta: {event.xdata} and theta_dot: {event.ydata}')
 
             update_count = 0
@@ -153,7 +134,7 @@ if __name__ == "__main__":
 
     dynamics = utils.load_checkpoint(checkpoint_path) 
     env_name = utils.extract_env_name(checkpoint_path)
-
+    actor = None
     if args.random_actor:
         action_space = gym.make(env_name).action_space
         actor = lambda x,**ignored: action_space.sample()
@@ -167,7 +148,7 @@ if __name__ == "__main__":
             print(f"there is no actor trained for the model {checkpoint_path}")
 
 
-    setpoint = angle_to_setpoint(args.angle)
+    setpoint = np.array([0.0, 0.0])
     lyapunov = None
     if not args.no_lyapunov:
         lyapunov = keras.models.load_model(args.lyapunov_path if args.lyapunov_path else checkpoint_path.parent / "lyapunov.keras")

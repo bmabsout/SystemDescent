@@ -61,7 +61,7 @@ class AmazingBallEnv(gym.Env):
                  render_mode="human",
                  plate_angular_v = constants["pl_vel"],  # assuming 30 degree / sec
                  plate_max_rotation = constants["max_rot_x"], # the max rotation along both axis is 30 deg
-                 ball_max_velocity = np.inf,
+                 ball_max_velocity = constants["max_ball_vel"],
                  ball_max_position = constants["max_ball_pos_x"],
                  dt = constants["dt"],
                  M = constants["m"],
@@ -168,6 +168,8 @@ class AmazingBallEnv(gym.Env):
         # draw stripe to indicate the rotation of the plate
         margin = constants['render_stripe_margin']
         thickness = constants['render_tiltline_thickness']
+        print(self.act)
+        # rot_x, rot_y = self.act
         rot_x, rot_y = self.state["plate_rot"]
         if isinstance(rot_x, tf.Tensor):
             rot_x = rot_x.numpy().item()
@@ -178,6 +180,7 @@ class AmazingBallEnv(gym.Env):
             offset = offset.numpy().item()
         pygame.draw.line(self.screen, (0, 255, 0), (self.rend_plate.centerx, self.rend_plate.top - margin), (self.rend_plate.centerx + offset, self.rend_plate.top - margin), thickness)
         pygame.draw.line(self.screen, (0, 255, 0), (self.rend_plate.centerx, self.rend_plate.bottom + margin), (self.rend_plate.centerx + offset, self.rend_plate.bottom + margin), thickness)
+        
         offset = scale(rot_y, (-self.plate_max_rotation, self.plate_max_rotation), (-self.plate_height/2, self.plate_height/2))
         pygame.draw.line(self.screen, (0, 255, 0), (self.rend_plate.left - margin, self.rend_plate.centery), (self.rend_plate.left - margin, self.rend_plate.centery + offset), thickness)
         pygame.draw.line(self.screen, (0, 255, 0), (self.rend_plate.right + margin, self.rend_plate.centery), (self.rend_plate.right + margin, self.rend_plate.centery + offset), thickness)
@@ -208,6 +211,8 @@ class AmazingBallEnv(gym.Env):
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         self.state = self._state_space().sample()
+        # self.state["plate_vel"] = np.zeros(2)
+        # self.state["plate_rot"] = np.zeros(2)
         # self.state = self._init_state_space().sample()
         # self.render()
         return self._gather_obs(), self._get_info()

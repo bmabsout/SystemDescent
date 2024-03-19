@@ -37,6 +37,7 @@ class ModeledAmazingBall(gym.Env):
         flattened_state = flatten_system_state(self.env.state)
         new_flat_state = self.run_nn(flattened_state, action)
         self.env.state = dictionarize_single_system_state(new_flat_state)
+        self.env.act = action
         self.env.render()
         return new_flat_state, 0.0, False, False, {}
 

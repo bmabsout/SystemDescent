@@ -8,6 +8,7 @@ constants = {
     'max_rot_y': np.pi / 6,
     'max_ball_pos_x': 10.0,
     'max_ball_pos_y': 10.0,
+    'max_ball_vel': 5.0,
     'pl_vel': np.pi / 2,
     'render_stripe_margin': 20,
     'render_tiltline_thickness': 15,
