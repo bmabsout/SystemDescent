@@ -1,4 +1,14 @@
+# Here's an example of a pendulum's evolution over time on a parameterized lyapunov function:
+[Screencast From 2024-12-09 00-02-03.webm](https://github.com/user-attachments/assets/aed22e4e-bc09-4463-9fc8-b914b53c9091)
+# Here's an example of how the pendulum behaves (both in the NN model case and the idealized system):
+
+
+[Pendulums](https://github.com/user-attachments/assets/cc5a26a3-331f-4410-8f3f-35f4ec74047c)
+
+
+
 # Installation instructions
+
 
 ## On Ubuntu:
 
