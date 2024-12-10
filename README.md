@@ -1,11 +1,8 @@
 # Here's an example of a pendulum's evolution over time on a parameterized lyapunov function:
 [Screencast From 2024-12-09 00-29-48.webm](https://github.com/user-attachments/assets/8b208b17-cb24-4e68-9e59-0dd2b0e4c992)
 
-# Here's an example of how the same pendulum system behaves (both in the NN model case and the idealized system):
-
-
-[Pendulums](https://github.com/user-attachments/assets/cc5a26a3-331f-4410-8f3f-35f4ec74047c)
-
+# Here's an example of how the same pendulum system behaves (using parameterized lyapunov function learning):
+[Screencast from 2023-08-22 02-17-25.webm](https://github.com/user-attachments/assets/0e3e52f1-282d-404e-88e3-ad8e1a6c2716)
 
 
 # Installation instructions
