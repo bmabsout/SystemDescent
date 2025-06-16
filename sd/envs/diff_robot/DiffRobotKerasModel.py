@@ -86,7 +86,7 @@ def differential_robot_Model():
 if __name__ == "__main__":
     # Create and save the model
     model = differential_robot_Model()
-    filepath = utils.random_subdir("models/DifferentialRobot-v1")
+    filepath = utils.random_subdir("models/DiffRobot-v1")
     utils.save_checkpoint(
         model=model,
         path=filepath,
