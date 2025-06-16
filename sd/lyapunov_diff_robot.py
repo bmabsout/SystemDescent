@@ -189,18 +189,18 @@ def generate_dataset(env: gym.Env):
             target_x = np.random.uniform(-4.0, 4.0)
             target_y = np.random.uniform(-4.0, 4.0)
 
-            # Orientation targets: focus on cardinal directions for interpretability
-            # This discretization helps the Lyapunov function learn clearer basins of attraction
-            orientation_choices = [
-                0.0,
-                np.pi / 2,
-                np.pi,
-                -np.pi / 2,
-            ]  # [East, North, West, South]
-            target_theta = np.random.choice(orientation_choices)
+            # # Orientation targets: focus on cardinal directions for interpretability
+            # # This discretization helps the Lyapunov function learn clearer basins of attraction
+            # orientation_choices = [
+            #     0.0,
+            #     np.pi / 2,
+            #     np.pi,
+            #     -np.pi / 2,
+            # ]  # [East, North, West, South]
+            # target_theta = np.random.choice(orientation_choices)
 
             # Alternative: fully random orientation
-            # target_theta = np.random.uniform(-np.pi, np.pi)
+            target_theta = np.random.uniform(-np.pi, np.pi)
 
             yield {
                 "state": obs,
@@ -428,7 +428,6 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
                 "navigation_performance": Constraints(
                     0.0,
                     {
-                        "lyapunov_decrease": decrease_satisfaction,
                         "distance_progress": progress_reward,
                         "target_proximity": p_mean(proximity_to_target, 1.0),
                     },
@@ -438,15 +437,16 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
                     {
                         "zero_at_target": zero_constraint,
                         "positive_elsewhere": positive_away_from_target,
+                        "lyapunov_decrease": decrease_satisfaction,
                     },
                 ),
-                "regularization": Constraints(
-                    1.0,  # Arithmetic mean for regularization terms
-                    {
-                        "actor_reg": actor_regularization,
-                        "lyapunov_reg": lyapunov_regularization,
-                    },
-                ),
+                # "regularization": Constraints(
+                #     1.0,  # Arithmetic mean for regularization terms
+                #     {
+                #         "actor_reg": actor_regularization,
+                #         "lyapunov_reg": lyapunov_regularization,
+                #     },
+                # ),
             },
         )
 
@@ -541,7 +541,7 @@ if __name__ == "__main__":
         "--batch_size", type=int, default=128, help="Batch size for training"
     )
     parser.add_argument(
-        "--lr", type=float, default=1e-3, help="Learning rate for Adam optimizer"
+        "--lr", type=float, default=5e-4, help="Learning rate for Adam optimizer"
     )
     parser.add_argument(
         "--load_saved",
