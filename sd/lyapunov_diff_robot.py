@@ -186,8 +186,8 @@ def generate_dataset(env: gym.Env):
 
             # Setpoint generation: create diverse navigation targets
             # Position targets: sample from reasonable navigation space
-            target_x = np.random.uniform(-2.0, 2.0)
-            target_y = np.random.uniform(-2.0, 2.0)
+            target_x = np.random.uniform(-4.0, 4.0)
+            target_y = np.random.uniform(-4.0, 4.0)
 
             # Orientation targets: focus on cardinal directions for interpretability
             # This discretization helps the Lyapunov function learn clearer basins of attraction

@@ -1,10 +1,8 @@
 """
-Corrected ModeledDiffRobotEnv that properly handles model_path parameter
+Complete ModeledDiffRobotEnv Implementation with Learned Dynamics
 
-Key Architectural Insights:
-1. ModeledEnv classes must accept model_path in constructor
-2. They should delegate dynamics to the learned neural network model
-3. They inherit the environment interface while replacing dynamics
+This is the corrected version that actually uses the learned neural network model
+for dynamics prediction instead of analytical equations.
 """
 
 __credits__ = ["Adapted from Pendulum ModeledEnv for Differential Robot Systems"]
@@ -14,6 +12,7 @@ from typing import Optional
 from pathlib import Path
 
 import numpy as np
+import tensorflow as tf
 
 import gymnasium as gym
 from gymnasium import spaces
@@ -28,39 +27,69 @@ DEFAULT_Y = 0.0  # Default initial y position
 DEFAULT_THETA = 0.0  # Default initial orientation
 
 
+def ensure_numpy_action(action):
+    """
+    Robust action conversion to NumPy array with proper shape validation
+
+    This function handles the tensor-to-array conversion that was causing
+    the indexing errors in your original implementation.
+    """
+    # Convert TensorFlow tensor to NumPy if needed
+    if hasattr(action, "numpy"):
+        action = action.numpy()
+
+    # Ensure NumPy array format
+    action = np.asarray(action, dtype=np.float32)
+
+    # Handle batch dimension if present: (1,2) → (2,)
+    if action.ndim == 2 and action.shape[0] == 1:
+        action = action.squeeze(0)
+
+    # Validate final shape for differential robot
+    if action.shape != (2,):
+        raise ValueError(
+            f"Action must have shape (2,), got {action.shape}. Action: {action}"
+        )
+
+    return action
+
+
 class ModeledDiffRobotEnv(ModelableEnv):
     """
-    ## Description
+    Model-Based Differential Mobile Robot Environment
 
-    A differential mobile robot environment that uses a learned neural network model
-    for dynamics instead of analytical equations. This allows testing of learned
-    dynamics models and comparison with ground truth physics.
+    This environment uses a learned neural network model for dynamics prediction
+    instead of analytical kinematic equations. This enables:
 
-    The learned model replaces the kinematic equations:
-    - Analytical: [dx/dt, dy/dt, dtheta/dt] = f_analytical(x, y, theta, v, w)
-    - Learned: [x_next, y_next, theta_next] = f_neural(x, y, theta, v, w)
+    1. **Model Validation**: Compare learned vs analytical dynamics
+    2. **Robustness Testing**: Evaluate controller performance with model uncertainty
+    3. **Sim-to-Real Transfer**: Test how well learned models generalize
+    4. **Ablation Studies**: Isolate the effect of dynamics modeling errors
 
-    ## Key Architectural Differences from Base DiffRobotEnv:
+    ## Key Implementation Differences from Analytical Environment:
 
-    1. **Model-Based Dynamics**: Uses learned TensorFlow model instead of analytical equations
-    2. **Model Loading**: Accepts model_path parameter to load pre-trained dynamics
-    3. **Stochastic Dynamics**: Supports latent noise injection for uncertainty modeling
-    4. **Identical Interface**: Maintains same observation/action spaces as analytical version
+    - **Dynamics**: Neural network prediction replaces kinematic integration
+    - **Stochasticity**: Supports latent noise injection for uncertainty modeling
+    - **Model Loading**: Requires trained dynamics model checkpoint path
+    - **Interface**: Identical observation/action spaces for seamless comparison
 
-    ## Constructor Parameters
-
-    - `model_path`: Path to trained dynamics model checkpoint
-    - `max_vel`: maximum linear/angular velocity (inherited from analytical model)
-    - `dt`: integration time step (should match training configuration)
-    - `render_mode`: visualization mode ("human" or "rgb_array")
-    - `screen`: pygame surface for rendering (used in testing)
-
-    ## Usage Example
-
+    ## Usage Pattern:
     ```python
-    import gymnasium as gym
+    # Create both environments for comparison
+    analytical_env = gym.make('DiffRobot-v1')
     modeled_env = gym.make('ModeledDiffRobot-v1',
-                          model_path='models/DiffRobot-v1/run_id/checkpoints/checkpoint0/model.keras')
+                          model_path='path/to/trained/model.keras')
+
+    # Test controller on both environments
+    obs_a, _ = analytical_env.reset(seed=42)
+    obs_m, _ = modeled_env.reset(seed=42)
+
+    action = controller(obs_a)
+    next_obs_a, _, _, _, _ = analytical_env.step(action)
+    next_obs_m, _, _, _, _ = modeled_env.step(action)
+
+    # Compare dynamics accuracy
+    dynamics_error = np.linalg.norm(next_obs_a - next_obs_m)
     ```
     """
 
@@ -71,196 +100,243 @@ class ModeledDiffRobotEnv(ModelableEnv):
 
     def __init__(
         self,
-        model_path: Optional[str] = None,
+        model_path: Optional[
+            str
+        ] = None,  # ← CRITICAL: model_path must be first parameter
         render_mode: Optional[str] = None,
         max_vel=2.0,
         dt=0.05,
         screen=None,
     ):
         """
-        Constructor for Model-Based Differential Robot Environment
+        Initialize Model-Based Environment with Learned Dynamics
 
-        Parameter Processing Pipeline:
-        1. Store model path for dynamics loading
-        2. Initialize identical parameters as analytical environment
-        3. Load learned dynamics model using sd.utils infrastructure
-        4. Preserve all interface compatibility with base environment
+        Parameter Order Critical for Gymnasium Compatibility:
+        gymnasium passes model_path as the first positional argument,
+        so it must be the first parameter in the constructor signature.
 
-        Critical Design Decision: model_path as first parameter
-        This ensures gymnasium can pass it correctly during environment creation
+        Initialization Pipeline:
+        1. Store model path and validate existence
+        2. Initialize environment parameters (identical to analytical version)
+        3. Load and validate learned dynamics model
+        4. Set up rendering infrastructure
         """
 
-        # Model path handling: convert to Path object for robust path operations
+        # Step 1: Model Path Validation and Storage
         if model_path is not None:
-            if isinstance(model_path, (str, Path)):
-                self.model_path = Path(model_path)
-            else:
-                self.model_path = model_path
+            self.model_path = Path(model_path)
+            if not self.model_path.exists():
+                raise FileNotFoundError(f"Model path does not exist: {model_path}")
         else:
-            # Fallback: attempt to use latest model if none specified
+            # Fallback: attempt to find latest trained model
             try:
                 self.model_path = sd_utils.latest_model()
-                print(f"No model_path specified, using latest: {self.model_path}")
+                print(f"No model_path provided, using latest: {self.model_path}")
             except Exception as e:
                 raise ValueError(
                     f"No model_path provided and could not find latest model: {e}"
                 )
 
-        # Robot physical parameters: identical to analytical environment
-        # These should match the parameters used during dynamics model training
+        # Step 2: Environment Parameter Initialization
+        # These parameters must match those used during dynamics model training
         self.max_linear_vel = max_vel
         self.max_angular_vel = max_vel
         self.dt = dt
 
-        # Environment bounds: maintain consistency with training environment
+        # Environment bounds: consistent with training environment
         self.max_position = 10.0
 
-        # Target position: can be modified for different control objectives
+        # Target configuration: can be modified during operation
         self.target_x = 0.0
         self.target_y = 0.0
         self.target_theta = 0.0
 
-        # Rendering infrastructure: identical to base environment
+        # Step 3: Rendering Infrastructure Setup
         self.render_mode = render_mode
         self.screen_dim = 500
         self.screen = screen
         self.clock = None
         self.isopen = True
 
-        # Action space definition: [linear_velocity, angular_velocity]
-        # Must exactly match the action space used during model training
+        # Step 4: Action and Observation Space Definition
+        # Must exactly match the spaces used during model training
         self.action_space = spaces.Box(
             low=np.array([-self.max_linear_vel, -self.max_angular_vel]),
             high=np.array([self.max_linear_vel, self.max_angular_vel]),
-            shape=(2,),
+            shape=(2,),  # [linear_velocity, angular_velocity]
             dtype=np.float32,
         )
 
-        # Observation space definition: [x, y, theta]
-        # Must exactly match the state space used during model training
         high = np.array([self.max_position, self.max_position, np.pi], dtype=np.float32)
-        self.observation_space = spaces.Box(low=-high, high=high, dtype=np.float32)
+        self.observation_space = spaces.Box(
+            low=-high, high=high, shape=(3,), dtype=np.float32  # [x, y, theta]
+        )
 
-        # Load learned dynamics model using project's utilities
-        # This is the critical difference from the analytical environment
+        # Step 5: Load and Validate Learned Dynamics Model
         self._load_dynamics_model()
 
     def _load_dynamics_model(self):
         """
-        Dynamics Model Loading and Validation
+        Load and Validate Learned Dynamics Model
 
-        Loading Process:
-        1. Use sd.utils.load_checkpoint to handle custom_objects correctly
-        2. Validate model input/output dimensions against environment specs
-        3. Cache model for efficient repeated evaluation during episodes
+        Validation Strategy:
+        1. Load model using project's custom checkpoint loader
+        2. Verify input/output dimensions match environment specifications
+        3. Test model with dummy inputs to ensure functionality
+        4. Store model for efficient repeated evaluation
 
-        Error Handling Strategy:
-        - Comprehensive validation of model compatibility
-        - Clear error messages for debugging model loading issues
-        - Graceful fallback suggestions for common failure modes
+        Error Handling:
+        Provides detailed diagnostics for common model loading failures
         """
         try:
-            print(f"Loading dynamics model from: {self.model_path}")
+            print(f"Loading learned dynamics model from: {self.model_path}")
             self.dynamics_model = sd_utils.load_checkpoint(self.model_path)
 
-            # Model validation: ensure compatibility with environment specifications
+            # Dimension validation: ensure model compatibility
             expected_state_shape = self.observation_space.shape  # (3,) for [x,y,theta]
             expected_action_shape = self.action_space.shape  # (2,) for [v,w]
 
-            # Validate input dimensions
             model_state_shape = self.dynamics_model.input["state"].shape[1:]
             model_action_shape = self.dynamics_model.input["action"].shape[1:]
+            model_latent_shape = self.dynamics_model.input["latent"].shape[1:]
 
+            # Validate state dimension compatibility
             if model_state_shape != expected_state_shape:
                 raise ValueError(
-                    f"Model state dimension {model_state_shape} doesn't match "
-                    f"environment state dimension {expected_state_shape}"
+                    f"Model state dimension mismatch. "
+                    f"Expected: {expected_state_shape}, Got: {model_state_shape}"
                 )
 
+            # Validate action dimension compatibility
             if model_action_shape != expected_action_shape:
                 raise ValueError(
-                    f"Model action dimension {model_action_shape} doesn't match "
-                    f"environment action dimension {expected_action_shape}"
+                    f"Model action dimension mismatch. "
+                    f"Expected: {expected_action_shape}, Got: {model_action_shape}"
                 )
 
-            print("✓ Dynamics model loaded and validated successfully")
+            print("✓ Learned dynamics model loaded and validated successfully")
             print(f"  State shape: {model_state_shape}")
             print(f"  Action shape: {model_action_shape}")
+            print(f"  Latent shape: {model_latent_shape}")
+
+            # Functional test: verify model can process dummy inputs
+            self._test_model_functionality()
 
         except Exception as e:
             raise RuntimeError(
                 f"Failed to load dynamics model from {self.model_path}. "
-                f"Error: {e}\n"
-                f"Ensure the model path is correct and the model was trained "
-                f"with compatible state/action dimensions."
+                f"Error details: {e}\n"
+                f"Ensure the model was trained with compatible dimensions and "
+                f"the checkpoint file is not corrupted."
             )
+
+    def _test_model_functionality(self):
+        """
+        Test Model with Dummy Inputs
+
+        Verification Process:
+        1. Create dummy inputs with correct shapes and types
+        2. Execute forward pass through learned model
+        3. Validate output shape and numerical properties
+        4. Ensure no runtime errors in model execution
+        """
+        try:
+            # Create dummy inputs matching expected formats
+            dummy_state = np.random.uniform(-1, 1, size=(1, 3)).astype(np.float32)
+            dummy_action = np.random.uniform(-1, 1, size=(1, 2)).astype(np.float32)
+            dummy_latent = np.random.normal(
+                0, 0.1, size=(1,) + self.dynamics_model.input["latent"].shape[1:]
+            ).astype(np.float32)
+
+            # Execute model forward pass
+            dummy_inputs = {
+                "state": dummy_state,
+                "action": dummy_action,
+                "latent": dummy_latent,
+            }
+
+            dummy_output = self.dynamics_model(dummy_inputs, training=False)
+
+            # Validate output properties
+            expected_output_shape = (1, 3)  # Batch size 1, state dimension 3
+            if dummy_output.shape != expected_output_shape:
+                raise ValueError(
+                    f"Model output shape incorrect. "
+                    f"Expected: {expected_output_shape}, Got: {dummy_output.shape}"
+                )
+
+            # Check for numerical stability (no NaN or infinite values)
+            if np.any(np.isnan(dummy_output.numpy())) or np.any(
+                np.isinf(dummy_output.numpy())
+            ):
+                raise ValueError("Model produces NaN or infinite outputs")
+
+            print("✓ Model functionality test passed")
+
+        except Exception as e:
+            raise RuntimeError(f"Model functionality test failed: {e}")
 
     def step(self, action):
         """
-        Model-Based Environment Step
+        Model-Based Environment Step with Learned Dynamics
 
         Step Execution Pipeline:
-        1. Validate and clip action to environment bounds
-        2. Prepare model inputs (state, action, latent noise)
-        3. Execute learned dynamics model forward pass
-        4. Extract next state from model output
-        5. Compute reward using analytical reward function
-        6. Handle termination conditions and return standard gym tuple
+        1. Validate current environment state
+        2. Convert and validate action format
+        3. Prepare inputs for neural network model
+        4. Execute learned dynamics prediction
+        5. Post-process predicted state
+        6. Compute reward using analytical function
+        7. Check termination conditions
+        8. Return standard gymnasium step tuple
 
-        Key Architectural Decision: Reward Function Separation
-        - Use learned model for dynamics prediction
-        - Keep analytical reward function for consistent training signal
-        - This hybrid approach provides best of both worlds
+        Key Architectural Decision: Hybrid Approach
+        - Dynamics: Use learned neural network model
+        - Rewards: Use analytical reward function
+        - Termination: Use analytical success criteria
+
+        This hybrid approach provides the best of both worlds:
+        reliable training signals with accurate dynamics modeling.
         """
 
-        # Current state extraction and validation
+        # Step 1: Environment State Validation
         if not hasattr(self, "state"):
-            raise RuntimeError("Environment not reset. Call reset() before step().")
-
-        current_state = self.state.copy()  # Defensive copying to prevent mutations
-
-        # Action validation and clipping: ensure model receives valid inputs
-        action = np.array(action, dtype=np.float32)
-
-        # Handle both single actions (2,) and batched actions (1,2) or (batch_size,2)
-        # This accommodates different input formats from various sources
-        if action.ndim == 2:
-            if action.shape[0] == 1:
-                # Single sample in batch format: (1,2) → (2,)
-                action = action.squeeze(0)
-            else:
-                raise ValueError(
-                    f"Batch size must be 1 for environment step, got batch size {action.shape[0]}"
-                )
-        elif action.ndim == 1:
-            # Already in correct single-sample format: (2,)
-            pass
-        else:
-            raise ValueError(
-                f"Action must be 1D or 2D array, got {action.ndim}D with shape {action.shape}"
+            raise RuntimeError(
+                "Environment not properly reset. Call reset() before step()."
             )
 
-        # Final validation: ensure we have exactly 2 action components
-        if action.shape != (2,):
-            raise ValueError(f"Action must have shape (2,), got {action.shape}")
+        current_state = self.state.copy()  # Defensive copy to prevent mutation
 
+        # Step 2: Action Conversion and Validation
+        # This is where the original indexing error was occurring
+        try:
+            action = ensure_numpy_action(action)
+            print(
+                f"[ModeledEnv Debug] Action after conversion: {action}, type: {type(action)}, shape: {action.shape}"
+            )
+        except Exception as e:
+            raise ValueError(
+                f"Action conversion failed in ModeledDiffRobotEnv.step(). "
+                f"Raw action: {action}, Type: {type(action)}, Error: {e}"
+            )
+
+        # Action clipping for safety and model stability
         v = np.clip(action[0], -self.max_linear_vel, self.max_linear_vel)
         w = np.clip(action[1], -self.max_angular_vel, self.max_angular_vel)
         clipped_action = np.array([v, w], dtype=np.float32)
 
         self.last_action = clipped_action  # Store for rendering
 
-        # Model input preparation: format for neural network evaluation
-        # Shape transformations: (3,) -> (1,3) for batch processing
-        model_state = current_state.reshape(1, -1).astype(np.float32)
-        model_action = clipped_action.reshape(1, -1).astype(np.float32)
+        # Step 3: Model Input Preparation
+        # Transform single samples to batch format for neural network processing
+        model_state = current_state.reshape(1, -1).astype(np.float32)  # (3,) → (1,3)
+        model_action = clipped_action.reshape(1, -1).astype(np.float32)  # (2,) → (1,2)
 
-        # Latent noise generation: supports stochastic dynamics modeling
-        # The noise dimension comes from model architecture during training
+        # Latent noise injection for stochastic dynamics modeling
         latent_shape = (1,) + self.dynamics_model.input["latent"].shape[1:]
-        latent_noise = np.random.normal(0, 0.1, latent_shape).astype(np.float32)
+        latent_noise = np.random.normal(0, 0.01, latent_shape).astype(np.float32)
 
-        # Learned dynamics evaluation: neural network forward pass
+        # Step 4: Learned Dynamics Prediction
         try:
             model_inputs = {
                 "state": model_state,
@@ -268,28 +344,36 @@ class ModeledDiffRobotEnv(ModelableEnv):
                 "latent": latent_noise,
             }
 
-            # Execute model prediction: [x,y,theta] -> [x_next,y_next,theta_next]
-            next_state_batch = self.dynamics_model(model_inputs, training=False)
-            next_state = next_state_batch.numpy().squeeze()  # (1,3) -> (3,)
+            print(
+                f"[ModeledEnv Debug] Model inputs - state: {model_state.shape}, action: {model_action.shape}"
+            )
 
-            # Post-processing: ensure state remains in valid ranges
-            next_state = self._postprocess_state(next_state)
+            # Neural network forward pass: current state + action → next state
+            next_state_batch = self.dynamics_model(model_inputs, training=False)
+            next_state = next_state_batch.numpy().squeeze()  # (1,3) → (3,)
+
+            print(
+                f"[ModeledEnv Debug] Model output: {next_state}, shape: {next_state.shape}"
+            )
 
         except Exception as e:
             raise RuntimeError(
-                f"Dynamics model evaluation failed. "
-                f"Current state: {current_state}, Action: {clipped_action}, "
-                f"Error: {e}"
+                f"Learned dynamics model prediction failed. "
+                f"Current state: {current_state}, Action: {clipped_action}, Error: {e}"
             )
 
-        # State update: replace analytical integration with learned prediction
+        # Step 5: State Post-Processing and Validation
+        next_state = self._postprocess_predicted_state(next_state)
+
+        # Step 6: State Update
         self.state = next_state
 
-        # Reward computation: use analytical reward function for consistency
-        # This ensures training compatibility between analytical and learned environments
-        reward = self._compute_reward(next_state, clipped_action)
+        # Step 7: Analytical Reward Computation
+        # Use the same reward function as analytical environment for consistency
+        reward = self._compute_analytical_reward(next_state, clipped_action)
 
-        # Termination logic: same success criteria as analytical environment
+        # Step 8: Termination Logic
+        # Use same success criteria as analytical environment
         distance_error = np.sqrt(
             (next_state[0] - self.target_x) ** 2 + (next_state[1] - self.target_y) ** 2
         )
@@ -303,29 +387,34 @@ class ModeledDiffRobotEnv(ModelableEnv):
         terminated = distance_error < 0.1 and angle_error < 0.1
         truncated = False  # Handled by time limit wrapper
 
-        # Rendering: optional visualization for monitoring
+        # Step 9: Optional Rendering
         if self.render_mode == "human":
             self.render()
 
         return self._get_obs(), reward, terminated, truncated, {}
 
-    def _postprocess_state(self, state):
+    def _postprocess_predicted_state(self, predicted_state):
         """
-        State Post-Processing for Learned Dynamics
+        Post-Process Neural Network State Predictions
 
-        Post-processing Pipeline:
+        Post-Processing Pipeline:
         1. Angle normalization: ensure theta ∈ [-π, π]
-        2. Position clipping: prevent infinite exploration
-        3. Type conversion: maintain numpy float32 consistency
+        2. Position bounds enforcement: prevent unrealistic states
+        3. Type and shape validation: ensure numpy array consistency
 
-        Why Post-Processing is Necessary:
-        Neural networks can produce outputs outside valid ranges,
-        especially during early training or with distribution shift.
+        Why Post-Processing is Essential:
+        Neural networks can produce outputs outside physically valid ranges,
+        especially with distribution shift or during early training phases.
         Post-processing ensures environment constraints are maintained.
         """
-        x, y, theta = state
+        if predicted_state.shape != (3,):
+            raise ValueError(
+                f"Predicted state must have shape (3,), got {predicted_state.shape}"
+            )
 
-        # Position bounds enforcement: prevent unrealistic states
+        x, y, theta = predicted_state
+
+        # Position bounds: prevent escape from workspace
         x = np.clip(x, -self.max_position, self.max_position)
         y = np.clip(y, -self.max_position, self.max_position)
 
@@ -334,64 +423,69 @@ class ModeledDiffRobotEnv(ModelableEnv):
 
         return np.array([x, y, theta], dtype=np.float32)
 
-    def _compute_reward(self, state, action):
+    def _compute_analytical_reward(self, state, action):
         """
-        Analytical Reward Function
+        Analytical Reward Function (Identical to Base Environment)
 
-        Reward Structure:
-        - Distance penalty: encourages reaching target position
-        - Orientation penalty: encourages correct final orientation
-        - Control penalty: discourages excessive control effort
+        Reward Components:
+        1. Position Error: Euclidean distance to target position
+        2. Orientation Error: Angular difference from target orientation
+        3. Control Cost: Quadratic penalty on control effort
 
         Mathematical Form:
-        r = -(||position_error||² + 0.1 * |angle_error|² + 0.001 * ||control||²)
+        r = -(||pos_error||² + 0.1 * |angle_error|² + 0.001 * ||control||²)
+
+        Design Rationale:
+        Using the same reward function for both analytical and learned environments
+        ensures fair comparison and consistent training signals.
         """
         x, y, theta = state
         v, w = action
 
-        # Distance to target computation
+        # Position error: Euclidean distance to target
         distance_error = np.sqrt((x - self.target_x) ** 2 + (y - self.target_y) ** 2)
 
-        # Angular error computation with wrap-around handling
+        # Orientation error: minimum angle between current and target orientations
         angle_error = np.abs(
             np.arctan2(
                 np.sin(theta - self.target_theta), np.cos(theta - self.target_theta)
             )
         )
 
-        # Control effort penalty
+        # Control effort: quadratic cost on velocities
         control_cost = v**2 + w**2
 
-        # Composite cost function
+        # Composite cost function (negated for reward)
         cost = distance_error**2 + 0.1 * angle_error**2 + 0.001 * control_cost
         return -cost
 
     def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
         """
-        Environment Reset: identical to analytical environment
+        Environment Reset (Identical to Analytical Environment)
 
         Reset Process:
-        1. Call parent reset for seed handling
+        1. Initialize random number generator with seed
         2. Sample initial state from specified distribution
-        3. Update target if specified in options
+        3. Configure target position if provided in options
         4. Return initial observation
 
-        Critical: Reset logic must match training environment exactly
+        Critical Requirement:
+        Reset logic must be identical to the analytical environment
+        to ensure fair comparison between dynamics models.
         """
         super().reset(seed=seed)
 
+        # Parse reset options
         if options is None:
-            # Default initialization bounds
-            x_bound = 1.0
-            y_bound = 1.0
+            x_bound = 4.0
+            y_bound = 4.0
             theta_bound = np.pi
         else:
-            # Custom bounds from options dictionary
             x_bound = options.get("x_bound", 1.0)
             y_bound = options.get("y_bound", 1.0)
             theta_bound = options.get("theta_bound", np.pi)
 
-            # Target position can also be customized
+            # Optional target reconfiguration
             self.target_x = options.get("target_x", 0.0)
             self.target_y = options.get("target_y", 0.0)
             self.target_theta = options.get("target_theta", 0.0)
@@ -411,16 +505,16 @@ class ModeledDiffRobotEnv(ModelableEnv):
 
     def _get_obs(self):
         """
-        Observation transformation: identical to analytical environment
+        Observation Formatting (Identical to Analytical Environment)
 
-        For differential robot: observation equals state directly
-        This maintains interface compatibility with training environment
+        For differential robot: direct state observation
+        No encoding transformations needed (unlike pendulum with trigonometric encoding)
         """
         return np.array(self.state, dtype=np.float32)
 
     def set_target(self, x, y, theta=0.0):
         """
-        Dynamic target setting: useful for interactive control testing
+        Dynamic Target Setting for Interactive Control Testing
         """
         self.target_x = x
         self.target_y = y
@@ -428,15 +522,11 @@ class ModeledDiffRobotEnv(ModelableEnv):
 
     def render(self):
         """
-        Visualization using pygame for real-time monitoring.
+        Rendering (Identical to Analytical Environment)
 
-        Rendering pipeline:
-        1. Initialize pygame surfaces if needed
-        2. Clear background and set coordinate transformations
-        3. Draw robot as oriented triangle
-        4. Draw target as circle
-        5. Add trajectory trail if desired
-        6. Update display buffer
+        Visual Comparison Strategy:
+        Identical rendering enables side-by-side comparison between
+        analytical and learned dynamics, revealing model accuracy visually.
         """
         if self.render_mode is None:
             assert self.spec is not None
@@ -483,14 +573,13 @@ class ModeledDiffRobotEnv(ModelableEnv):
         # Draw target position
         target_screen_x = int(self.target_x * scale + offset)
         target_screen_y = int(-self.target_y * scale + offset)
-        gfxdraw.aacircle(self.surf, target_screen_x, target_screen_y, 20, (0, 255, 0))
+        gfxdraw.aacircle(self.surf, target_screen_x, target_screen_y, 5, (0, 255, 0))
         gfxdraw.filled_circle(
-            self.surf, target_screen_x, target_screen_y, 20, (0, 255, 0)
+            self.surf, target_screen_x, target_screen_y, 5, (0, 255, 0)
         )
 
         # Draw robot as oriented triangle
         robot_size = 15
-        # Triangle vertices in robot frame
         triangle_points = [
             (robot_size, 0),  # Front point
             (-robot_size // 2, robot_size // 2),  # Left rear
@@ -500,7 +589,6 @@ class ModeledDiffRobotEnv(ModelableEnv):
         # Rotate triangle points by robot orientation
         rotated_points = []
         for px, py in triangle_points:
-            # 2D rotation matrix application
             rotated_x = px * np.cos(theta) - py * np.sin(theta)
             rotated_y = px * np.sin(theta) + py * np.cos(theta)
             rotated_points.append((screen_x + rotated_x, screen_y + rotated_y))
@@ -537,7 +625,7 @@ class ModeledDiffRobotEnv(ModelableEnv):
             )
 
     def close(self):
-        """Resource cleanup: identical to analytical environment"""
+        """Resource cleanup"""
         if self.screen is not None:
             import pygame
 
