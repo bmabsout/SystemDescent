@@ -314,9 +314,6 @@ class DiffRobotEnv(ModelableEnv):
         self.surf = pygame.Surface((self.screen_dim, self.screen_dim))
         self.surf.fill((255, 255, 255))  # White background
 
-        # Draw black frame around the grid
-        pygame.draw.rect(self.surf, (0, 0, 0), self.surf.get_rect(), width=5)
-
         # Coordinate transformation: robot coordinates to screen pixels
         bound = self.max_position
         scale = self.screen_dim / (bound * 2)
@@ -372,6 +369,15 @@ class DiffRobotEnv(ModelableEnv):
 
         # Flip surface for correct orientation
         self.surf = pygame.transform.flip(self.surf, False, True)
+
+        # Render text AFTER the flip to avoid upside-down text
+        font = pygame.font.Font(None, 24)
+        text = font.render("Differential Robot Gym Environment", True, (0, 0, 0))
+        self.surf.blit(text, (10, 10))
+
+        # Add a black border around the screen
+        pygame.draw.rect(self.surf, (0, 0, 0), self.surf.get_rect(), 2)
+
         self.screen.blit(self.surf, (0, 0))
 
         if self.render_mode == "human":

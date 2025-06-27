@@ -12,7 +12,7 @@ from tensorflow.python.keras import losses
 from functools import reduce
 from pathlib import Path
 import argparse
-from .dfl import *
+from .fpl import *
 from . import utils
 from tqdm import tqdm
 import sd.envs
@@ -188,18 +188,6 @@ def generate_dataset(env: gym.Env):
             # Position targets: sample from reasonable navigation space
             target_x = np.random.uniform(-4.0, 4.0)
             target_y = np.random.uniform(-4.0, 4.0)
-
-            # # Orientation targets: focus on cardinal directions for interpretability
-            # # This discretization helps the Lyapunov function learn clearer basins of attraction
-            # orientation_choices = [
-            #     0.0,
-            #     np.pi / 2,
-            #     np.pi,
-            #     -np.pi / 2,
-            # ]  # [East, North, West, South]
-            # target_theta = np.random.choice(orientation_choices)
-
-            # Alternative: fully random orientation
             target_theta = np.random.uniform(-np.pi, np.pi)
 
             yield {
@@ -252,7 +240,7 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
     3. Both functions are smooth and generalizable across state-target pairs
 
     Optimization Strategy:
-    - Differentiable Fuzzy Logic (DFL) framework for multi-objective optimization
+    - Differentiable Fuzzy Logic (FPL) framework for multi-objective optimization
     - Adam optimizer for smooth gradient-based learning
     - Random trajectory lengths prevent overfitting to specific time horizons
     """
@@ -311,7 +299,11 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
         # Return: (final_state: [batch, state_dim], trajectory: [batch, time, state_dim])
         return current_states, tf.transpose(states.stack(), [1, 0, 2])
 
-    def batch_value(batch):
+    def batch_value(
+        batch,
+        minN=3,
+        maxN=20,
+    ):
         """
         Lyapunov Training Objective Computation
 
@@ -326,11 +318,10 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
         Enforce: V(x₀,x*) > V(x₁,x*) > ... > V(xₜ,x*) > V(x*,x*) = 0
         """
         # Trajectory length randomization: prevents temporal overfitting
-        maxRepetitions = 20  # Increased for longer navigation tasks
         repetitions = tf.random.uniform(
             shape=[],
-            minval=3,  # Minimum trajectory length for meaningful learning
-            maxval=maxRepetitions + 1,
+            minval=minN,  # Minimum trajectory length for meaningful learning
+            maxval=maxN + 1,
             dtype=tf.dtypes.int32,
         )
 
@@ -379,7 +370,7 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 
         # Lyapunov decrease shaping: adaptive decrease requirements
         repetitionsf = tf.cast(repetitions, tf.dtypes.float32)
-        maxRepetitionsf = tf.cast(maxRepetitions, tf.dtypes.float32)
+        maxNf = tf.cast(maxN, tf.dtypes.float32)
 
         # Adaptive decrease rate: longer trajectories require more decrease
         # This prevents the Lyapunov function from becoming too flat
@@ -453,22 +444,22 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
         return training_objective
 
     @tf.function
-    def train_step(batch):
+    def train_step(batch, minN=3, maxN=20):
         """
         Single Training Step: Gradient Computation and Application
 
         Training Process:
-        1. Forward pass: compute multi-objective loss via DFL framework
+        1. Forward pass: compute multi-objective loss via FPL framework
         2. Gradient computation: automatic differentiation w.r.t. all parameters
         3. Gradient application: Adam optimizer update for both networks
         4. Metrics collection: return scalar performance and detailed breakdown
         """
         with tf.GradientTape() as tape:
-            # Multi-objective evaluation via DFL constraint satisfaction
-            objective_structure = batch_value(batch)
+            # Multi-objective evaluation via FPL constraint satisfaction
+            objective_structure = batch_value(batch, minN, maxN)
 
             # Scalar optimization target: maximize constraint satisfaction
-            satisfaction_scalar = dfl_scalar(objective_structure)
+            satisfaction_scalar = fpl_scalar(objective_structure)
             loss = 1.0 - satisfaction_scalar  # Convert to minimization problem
 
         # Joint gradient computation: both networks trained simultaneously
@@ -487,9 +478,9 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
         save_model(V, "lyapunov.keras")
         print(f"Models saved at epoch {epoch}")
 
-    def train_and_display(batch):
+    def train_and_display(batch, minN=3, maxN=20):
         """Training step with formatted output for monitoring"""
-        scalar, metrics = train_step(batch)
+        scalar, metrics = train_step(batch, minN, maxN)
         return f"Satisfaction: {scalar:.3f} ||| {metrics}"
 
     # Main training loop with progress monitoring and periodic saving
@@ -497,6 +488,8 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
         [batches] * args.epochs,
         train_step=train_and_display,
         every_n_seconds={"freq": args.save_freq, "callback": save_models},
+        minN=args.minN,
+        maxN=args.maxN,
     )
 
 
@@ -547,6 +540,18 @@ if __name__ == "__main__":
         "--load_saved",
         action="store_true",
         help="Resume training from saved actor and Lyapunov models",
+    )
+    parser.add_argument(
+        "--minN",
+        type=int,
+        default=3,
+        help="Minimum trajectory length for Lyapunov training",
+    )
+    parser.add_argument(
+        "--maxN",
+        type=int,
+        default=20,
+        help="Maximum trajectory length for Lyapunov training",
     )
 
     args = parser.parse_args()

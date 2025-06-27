@@ -12,7 +12,7 @@ from tensorflow.python.keras import losses
 from functools import reduce
 from pathlib import Path
 import argparse
-from .dfl import *
+from .fpl import *
 from . import utils
 from tqdm import tqdm
 import sd.envs
@@ -247,7 +247,7 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
             tf.minimum(non_setpoint_Vx * 10, 1.0), 0.0
         )  # making sure non setpoints Vx > 0.1
 
-        dfl = Constraints(
+        fpl = Constraints(
             0.0,
             {
                 # "close_angles": scale_gradient(p_mean(as_all, 2.0), 1.0),
@@ -268,7 +268,7 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
             },
         )
 
-        return dfl
+        return fpl
 
     @tf.function
     def set_gradient_size(gradients, size):
@@ -278,11 +278,11 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
     def train_step(batch):
         # for i in tf.range(1):
         with tf.GradientTape() as tape:
-            dfl = batch_value(batch)
+            fpl = batch_value(batch)
             # loss_value = scale_gradient(loss_value, 1/loss_value**4.0)
 
             # the scalar is best to be 1, so that the loss is best to be 0.
-            scalar = dfl_scalar(dfl)
+            scalar = fpl_scalar(fpl)
             loss = 1 - scalar
             # tf.print(value)
         grads = tape.gradient(loss, actor.trainable_weights + V.trainable_weights)
@@ -297,7 +297,7 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
             zip(grads, actor.trainable_weights + V.trainable_weights)
         )
 
-        return scalar, dfl
+        return scalar, fpl
 
     def save_models(epoch):
         save_model(actor, "actor.keras")
