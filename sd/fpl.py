@@ -118,7 +118,7 @@ def format_constraint(name_constraint: Tuple[str, FPL]):
 
 
 class Constraints(NamedTuple):
-    """FPL stands for Differentiable fuzzy logic
+    """FPL stands for Fulfillment Priority Logic.
     The intention is to build loss functions out of multiple objectives
     it is a recursive structure where there are constraints of constraints, the operator is the argument to the generalized mean, the second is the definition of the constraints.
     """
@@ -128,7 +128,7 @@ class Constraints(NamedTuple):
 
     def scalarize(self):
         return p_mean(
-            tf.stack(list(map(fpl_scalar, self.constraints.values()))),
+            tf.stack(list(map(fpl_value, self.constraints.values()))),
             self.operator,
             default_val=1.0,
         )
@@ -141,7 +141,7 @@ class InvConstraints(Constraints):
     def scalarize(self):
         return 1.0 - p_mean(
             tf.stack(
-                list(map(lambda x: 1.0 - fpl_scalar(x), self.constraints.values()))
+                list(map(lambda x: 1.0 - fpl_value(x), self.constraints.values()))
             ),
             self.operator,
             default_val=1.0,
@@ -154,7 +154,7 @@ class InvConstraints(Constraints):
 # currently specialized to tf tensors, can be made generic if https://bugs.python.org/issue43923 is solved
 
 
-def fpl_scalar(fpl: FPL):
+def fpl_value(fpl: FPL):
     return fpl.scalarize() if (isinstance(fpl, Constraints)) else fpl
 
 

@@ -14,6 +14,8 @@ import argparse
 import pygame
 import time
 
+from sd.enhanced_lyapunov_viz import plot_diff_robot_lyapunov_enhanced
+
 
 def ensure_numpy_action(action):
     """
@@ -55,7 +57,7 @@ def position_to_setpoint(x, y, theta=0.0):
     return np.array([x, y, theta], dtype=np.float32)
 
 
-def plot_diff_robot_lyapunov(
+def plot_diff_robot_lyapunov_original(
     lyapunov, actor, dynamics, set_point, fname, interactive=False
 ):
     """
@@ -273,7 +275,7 @@ if __name__ == "__main__":
                 checkpoint_path.parent / "lyapunov.keras"
             )
             print("Lyapunov function loaded, generating visualization...")
-            plot_diff_robot_lyapunov(
+            plot_diff_robot_lyapunov_enhanced(
                 lyapunov,
                 actor,
                 dynamics,

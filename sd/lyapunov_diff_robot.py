@@ -358,15 +358,15 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
         initial_distances = euclidean_distance(prev_states, set_points)
         final_distances = euclidean_distance(final_states, set_points)
 
-        # Progress requirement: robot should move closer to target
-        distance_improvement = initial_distances - final_distances
+        # # Progress requirement: robot should move closer to target
+        # distance_improvement = initial_distances - final_distances
 
-        # Convergence assessment: proximity to target evaluation
+        # # Convergence assessment: proximity to target evaluation
         proximity_to_target = tf.exp(-final_distances)  # Exponential proximity reward
 
-        # Regularization terms: prevent network pathologies
-        actor_regularization = 1.0 - tf.tanh(tf.reduce_mean(actor.losses))
-        lyapunov_regularization = 1.0 - tf.tanh(tf.reduce_mean(V.losses))
+        # # Regularization terms: prevent network pathologies
+        # actor_regularization = 1.0 - tf.tanh(tf.reduce_mean(actor.losses))
+        # lyapunov_regularization = 1.0 - tf.tanh(tf.reduce_mean(V.losses))
 
         # Lyapunov decrease shaping: adaptive decrease requirements
         repetitionsf = tf.cast(repetitions, tf.dtypes.float32)
@@ -403,13 +403,19 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
             0.0,  # Geometric mean for balanced constraint satisfaction
         )
 
-        # Progress-based shaping: reward states that make navigation progress
-        progress_reward = p_mean(
-            tf.sigmoid(
-                distance_improvement * 10.0
-            ),  # Sigmoid shaping for smooth gradients
-            2.0,  # Quadratic mean emphasizes consistent progress
-        )
+        # # Progress-based shaping: reward states that make navigation progress
+        # progress_reward = p_mean(
+        #     tf.sigmoid(
+        #         distance_improvement * 10.0
+        #     ),  # Sigmoid shaping for smooth gradients
+        #     2.0,  # Quadratic mean emphasizes consistent progress
+        # )
+
+        # Performance metric: -V_dot based progress evaluation
+        # Since V decreasing means progress toward target, -V_dot captures navigation performance
+        v_dot_progress = tf.sigmoid(
+            lyapunov_decrease * 10.0
+        )  # Sigmoid normalization like old progress_reward
 
         # Multi-objective optimization using Differentiable Fuzzy Logic
         # This framework allows principled combination of multiple learning objectives
@@ -419,8 +425,9 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
                 "navigation_performance": Constraints(
                     0.0,
                     {
-                        "distance_progress": progress_reward,
-                        "target_proximity": p_mean(proximity_to_target, 1.0),
+                        "progress_reward": p_mean(v_dot_progress, 0),
+                        # "distance_progress": progress_reward,
+                        "target_proximity": p_mean(proximity_to_target, -2.0),
                     },
                 ),
                 "lyapunov_conditions": Constraints(
@@ -459,18 +466,18 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
             objective_structure = batch_value(batch, minN, maxN)
 
             # Scalar optimization target: maximize constraint satisfaction
-            satisfaction_scalar = fpl_scalar(objective_structure)
-            loss = 1.0 - satisfaction_scalar  # Convert to minimization problem
+            fulfillment_value = fpl_value(objective_structure)
+            loss = 1.0 - fulfillment_value  # Convert to minimization problem
 
         # Joint gradient computation: both networks trained simultaneously
         trainable_parameters = actor.trainable_weights + V.trainable_weights
         gradients = tape.gradient(loss, trainable_parameters)
 
         # Gradient application with adaptive learning rate
-        # Learning rate could be made adaptive based on satisfaction_scalar
+        # Learning rate could be made adaptive based on fulfillment_value
         optimizer.apply_gradients(zip(gradients, trainable_parameters))
 
-        return satisfaction_scalar, objective_structure
+        return fulfillment_value, objective_structure
 
     def save_models(epoch):
         """Periodic model checkpointing for training resumption"""
