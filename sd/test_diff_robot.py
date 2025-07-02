@@ -202,8 +202,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--interactive", action="store_true", help="Show interactive plots"
     )
-    parser.add_argument("--target_x", type=float, default=1.0, help="Target X position")
-    parser.add_argument("--target_y", type=float, default=1.0, help="Target Y position")
+    parser.add_argument("--target_x", type=float, default=0.0, help="Target X position")
+    parser.add_argument("--target_y", type=float, default=0.0, help="Target Y position")
     parser.add_argument(
         "--target_theta", type=float, default=0.0, help="Target orientation (radians)"
     )
