@@ -384,7 +384,7 @@ class ModeledDiffRobotEnv(ModelableEnv):
             )
         )
 
-        terminated = distance_error < 0.1 and angle_error < 0.1
+        terminated = distance_error < 0.01 and angle_error < 0.01
         truncated = False  # Handled by time limit wrapper
 
         # Step 9: Optional Rendering

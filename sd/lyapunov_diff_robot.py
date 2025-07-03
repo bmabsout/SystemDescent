@@ -17,89 +17,50 @@ from . import utils
 from tqdm import tqdm
 import sd.envs
 
-# Import the monotonic layers we just created
-from .monotonic_layers import V_def_with_architecture_choice
 
-
-def V_def(
-    state_shape: Tuple[int, ...],
-    use_monotonic: bool = False,
-    origin_stabilization: bool = False,
-    **monotonic_kwargs,
-):
+def V_def(state_shape: Tuple[int, ...], origin_stabilization: bool = False):
     """
-    Enhanced Lyapunov Function Architecture for Differential Mobile Robot
-
-    Now supports both standard neural networks and monotonic neural networks
-    from the paper "Lyapunov Neural Network with Region of Attraction Search".
+    Lyapunov Function Architecture for Differential Mobile Robot
 
     Args:
         state_shape: Tuple defining the shape of state input
-        use_monotonic: If True, uses monotonic architecture; if False, uses standard NN
         origin_stabilization: If True, uses error-state formulation V(state - setpoint)
-        **monotonic_kwargs: Additional arguments for monotonic network configuration
-
-    Mathematical Foundation:
-    A Lyapunov function V(x,x*) must satisfy:
-    1. V(x*,x*) = 0 (zero at equilibrium/setpoint)
-    2. V(x,x*) > 0 for x ≠ x* (positive definite away from setpoint)
-    3. dV/dt < 0 along system trajectories (decreasing along system evolution)
-
-    Monotonic Network Advantages:
-    - Guarantees positive definiteness by construction
-    - Ensures unique global minimum at origin
-    - Provides formal stability guarantees when combined with MILP verification
-    - Reduces search space for Lyapunov function learning
+                             If False, uses multi-target V([state, setpoint])
     """
+    input_state = keras.Input(shape=state_shape, name="state")
+    input_setpoint = keras.Input(shape=state_shape, name="setpoint")
 
-    # For monotonic networks, force origin stabilization
-    if use_monotonic:
-        origin_stabilization = True
-        print("\n=== Creating Monotonic Lyapunov Network ===")
-        print("Mode: Error-State Stabilization V(state - setpoint)")
-        print(
-            "  • Can handle any setpoint by learning V(error) with error = state - setpoint"
-        )
-        print("  • Positive definiteness by construction")
-        print("  • Unique global minimum at error = 0")
-        print("  • Compatible with MILP verification")
+    if origin_stabilization:
+        # Error-state mode: V(state - setpoint)
+        error_state = layers.Subtract(name="error_state")([input_state, input_setpoint])
+        network_input = error_state
+        print("Lyapunov using ERROR-STATE input V(state - setpoint)")
     else:
-        if origin_stabilization:
-            print("\n=== Creating Standard Neural Network (Error-State Mode) ===")
-            print("Mode: Error-State Stabilization V(state - setpoint)")
-            print("  • Networks see error state as input")
-            print("  • Can handle any setpoint")
-        else:
-            print("\n=== Creating Standard Neural Network (Multi-Target Mode) ===")
-            print("Mode: Concatenated input V([state, setpoint])")
-            print("  • Networks see full state and setpoint information")
+        # Multi-target mode: V([state, setpoint])
+        network_input = layers.Concatenate(name="state_setpoint_concat")(
+            [input_state, input_setpoint]
+        )
+        print("Lyapunov using CONCATENATED input V([state, setpoint])")
 
-    # Default monotonic network parameters
-    default_monotonic_params = {
-        "num_layers": 2,
-        "directions_per_layer": None,  # Will auto-determine
-        "num_pieces": 4,
-        "name": "MonotonicLyapunovFunction",
-    }
+    dense1 = layers.Dense(
+        64, activation="tanh", kernel_regularizer=keras.regularizers.l2(0.01)
+    )(network_input)
+    dense2 = layers.Dense(
+        64, activation="tanh", kernel_regularizer=keras.regularizers.l2(0.01)
+    )(dense1)
+    outputs = layers.Dense(
+        1, activation="sigmoid", kernel_regularizer=keras.regularizers.l2(0.01)
+    )(dense2)
 
-    # Update with user-provided parameters
-    default_monotonic_params.update(monotonic_kwargs)
-
-    model = V_def_with_architecture_choice(
-        state_shape,
-        use_monotonic=use_monotonic,
-        origin_stabilization=origin_stabilization,
-        **default_monotonic_params,
+    model = keras.Model(
+        inputs={"state": input_state, "setpoint": input_setpoint},
+        outputs=outputs,
+        name="V",
     )
 
-    if use_monotonic:
-        print(
-            f"Monotonic network created with {default_monotonic_params['num_layers']} layers"
-        )
-        print(
-            f"Each monotonic unit has {default_monotonic_params['num_pieces']} pieces"
-        )
-
+    print()
+    print("=== Lyapunov Function Architecture ===")
+    model.summary()
     return model
 
 
@@ -223,29 +184,19 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
     """
     Enhanced Lyapunov-Based Control Training Loop
 
-    Now supports both standard and monotonic Lyapunov networks with automatic
-    handling of origin vs multi-target stabilization modes.
+    Now supports handling of origin vs multi-target stabilization modes.
     """
-    origin_stabilization = args.origin_stabilization or ("Monotonic" in V.name)
+    origin_stabilization = args.origin_stabilization
 
     optimizer = keras.optimizers.Adam(learning_rate=args.lr)
 
-    # Check if using monotonic network
-    is_monotonic = "Monotonic" in V.name
-    if is_monotonic:
-        print("\n=== Training with Monotonic Lyapunov Network ===")
+    if origin_stabilization:
+        print("\n=== Training with Standard Neural Network ===")
         print("Mode: Error-State Stabilization V(state - setpoint)")
-        print(
-            "Note: Positive definiteness and zero-at-equilibrium satisfied by construction"
-        )
     else:
-        if origin_stabilization:
-            print("\n=== Training with Standard Neural Network ===")
-            print("Mode: Error-State Stabilization V(state - setpoint)")
-        else:
-            print("\n=== Training with Standard Neural Network ===")
-            print("Mode: Multi-Target V([state, setpoint])")
-        print("Note: All Lyapunov conditions must be enforced during training")
+        print("\n=== Training with Standard Neural Network ===")
+        print("Mode: Multi-Target V([state, setpoint])")
+    print("Note: All Lyapunov conditions must be enforced during training")
 
     @tf.function
     def run_full_model(initial_states, set_points, repeat=1):
@@ -334,59 +285,32 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
         # Performance metrics
         v_dot_progress = tf.sigmoid(lyapunov_decrease * 10.0)
 
-        # Construct constraint hierarchy based on network type
-        if is_monotonic:
-            # For monotonic networks, positive definiteness and zero-at-target are
-            # automatically satisfied, so we focus on the decrease condition and performance
-            training_objective = Constraints(
-                0.0,
-                {
-                    "navigation_performance": Constraints(
-                        0.0,
-                        {
-                            "progress_reward": p_mean(v_dot_progress, 0),
-                            "target_proximity": p_mean(proximity_to_target, -2.0),
-                        },
-                    ),
-                    "lyapunov_conditions": Constraints(
-                        0.0,
-                        {
-                            "lyapunov_decrease": decrease_satisfaction,
-                            # Note: zero_at_target and positive_elsewhere are satisfied by construction
-                        },
-                    ),
-                },
-            )
-        else:
-            # For standard networks, we need all constraints
-            zero_constraint = p_mean((1.0 - V_at_target**0.5), -1.0, default_val=1.0)
+        zero_constraint = p_mean((1.0 - V_at_target**0.5), -1.0, default_val=1.0)
 
-            target_distances = euclidean_distance(prev_states, set_points)
-            non_target_mask = tf.where(target_distances > 0.1, V_initial, 1.0)
-            positive_away_from_target = p_mean(
-                tf.minimum(non_target_mask * 5.0, 1.0), 0.0
-            )
+        target_distances = euclidean_distance(prev_states, set_points)
+        non_target_mask = tf.where(target_distances > 0.01, V_initial, 1.0)
+        positive_away_from_target = p_mean(tf.minimum(non_target_mask * 5.0, 1.0), 0.0)
 
-            training_objective = Constraints(
-                0.0,
-                {
-                    "navigation_performance": Constraints(
-                        0.0,
-                        {
-                            "progress_reward": p_mean(v_dot_progress, 0),
-                            "target_proximity": p_mean(proximity_to_target, -2.0),
-                        },
-                    ),
-                    "lyapunov_conditions": Constraints(
-                        0.0,
-                        {
-                            "zero_at_target": zero_constraint,
-                            "positive_elsewhere": positive_away_from_target,
-                            "lyapunov_decrease": decrease_satisfaction,
-                        },
-                    ),
-                },
-            )
+        training_objective = Constraints(
+            0.0,
+            {
+                "navigation_performance": Constraints(
+                    0.0,
+                    {
+                        "progress_reward": p_mean(v_dot_progress, 0),
+                        "target_proximity": p_mean(proximity_to_target, -2.0),
+                    },
+                ),
+                "lyapunov_conditions": Constraints(
+                    0.0,
+                    {
+                        "zero_at_target": zero_constraint,
+                        "positive_elsewhere": positive_away_from_target,
+                        "lyapunov_decrease": decrease_satisfaction,
+                    },
+                ),
+            },
+        )
 
         return training_objective
 
@@ -426,9 +350,6 @@ def train(batches, dynamics_model, actor, V, state_shape, args):
 
 
 if __name__ == "__main__":
-    """
-    Enhanced Main Training Script with Monotonic Architecture Support
-    """
     parser = argparse.ArgumentParser(
         description="Lyapunov-based control learning for differential mobile robots"
     )
@@ -474,28 +395,10 @@ if __name__ == "__main__":
         help="Maximum trajectory length for Lyapunov training",
     )
 
-    # Architecture choice arguments
-    parser.add_argument(
-        "--use_monotonic",
-        action="store_true",
-        help="Use monotonic neural network architecture (automatically enables error-state mode)",
-    )
     parser.add_argument(
         "--origin_stabilization",
         action="store_true",
         help="Use error-state mode V(state-setpoint) even with standard networks",
-    )
-    parser.add_argument(
-        "--monotonic_layers",
-        type=int,
-        default=2,
-        help="Number of monotonic layers (only used with --use_monotonic)",
-    )
-    parser.add_argument(
-        "--monotonic_pieces",
-        type=int,
-        default=4,
-        help="Number of pieces per monotonic unit (only used with --use_monotonic)",
     )
     parser.add_argument(
         "--origin_setpoint",
@@ -508,29 +411,18 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Determine final stabilization mode
-    origin_stabilization = args.origin_stabilization or args.use_monotonic
+    origin_stabilization = args.origin_stabilization
 
     # Print architecture choice
     print("=" * 60)
-    if args.use_monotonic:
-        print("🔬 USING MONOTONIC NEURAL NETWORK ARCHITECTURE")
-        print("   • Provides formal stability guarantees by construction")
-        print("   • Positive definiteness ensured automatically")
+    print("🧠 USING STANDARD NEURAL NETWORK ARCHITECTURE")
+    if origin_stabilization:
         print("   • Error-state mode V(state - setpoint)")
         print("   • Can handle any setpoint")
-        print("   • Compatible with MILP verification")
-        print(
-            f"   • {args.monotonic_layers} layers, {args.monotonic_pieces} pieces per unit"
-        )
     else:
-        print("🧠 USING STANDARD NEURAL NETWORK ARCHITECTURE")
-        if origin_stabilization:
-            print("   • Error-state mode V(state - setpoint)")
-            print("   • Can handle any setpoint")
-        else:
-            print("   • Multi-target mode V([state, setpoint])")
-            print("   • Traditional concatenated input approach")
-        print("   • All Lyapunov conditions enforced during training")
+        print("   • Multi-target mode V([state, setpoint])")
+        print("   • Traditional concatenated input approach")
+    print("   • All Lyapunov conditions enforced during training")
     print("=" * 60)
 
     # Model path handling
@@ -573,10 +465,7 @@ if __name__ == "__main__":
         # Create Lyapunov network with chosen architecture
         lyapunov_model = V_def(
             state_shape,
-            use_monotonic=args.use_monotonic,
             origin_stabilization=origin_stabilization,
-            num_layers=args.monotonic_layers,
-            num_pieces=args.monotonic_pieces,
         )
 
     # Dataset construction
@@ -619,11 +508,7 @@ if __name__ == "__main__":
     print("\n=== Training Completed Successfully ===")
     print(f"Trained models saved to: {args.ckpt_path.parent}")
 
-    if args.use_monotonic:
-        print("✅ Monotonic architecture ensures formal stability guarantees!")
-        print("   Next step: Integrate MILP verification for complete certification")
-    else:
-        print("✅ Standard architecture training completed")
+    print("✅ Standard architecture training completed")
 
     print(
         "Use test_diff_robot.py to evaluate the learned controller and Lyapunov function"

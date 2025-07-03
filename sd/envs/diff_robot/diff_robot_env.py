@@ -203,7 +203,7 @@ class DiffRobotEnv(ModelableEnv):
         reward = -cost
 
         # Episode termination conditions
-        terminated = distance_error < 0.1 and angle_error < 0.1  # Success condition
+        terminated = distance_error < 0.01 and angle_error < 0.01  # Success condition
         truncated = False  # Handled by time limit wrapper
 
         if self.render_mode == "human":
