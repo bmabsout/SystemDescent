@@ -19,10 +19,10 @@ import sd.envs
 import time
 import json
 
-# Import your existing functions
-from lyapunov_diff_robot import V_def, actor_def, generate_dataset, save_model
+# Import the monotonic layers we just created
+from .monotonic_layers import V_def_with_architecture_choice
 
-# SMT Solver imports - install with: pip install z3-solver cvc5 dreal
+# SMT Solver imports
 try:
     import z3
 
@@ -49,10 +49,9 @@ except ImportError:
     print("Warning: dReal not available. Install with: pip install dreal")
 
 
+# === SMT Verification Classes ===
 class LyapunovVerifier:
-    """
-    SMT-based verification for Lyapunov conditions with support for multiple solvers
-    """
+    """SMT-based verification for Lyapunov conditions with support for multiple solvers"""
 
     def __init__(self, solver="z3", timeout=30, precision=1e-3):
         self.solver_name = solver
@@ -88,9 +87,7 @@ class LyapunovVerifier:
         is_monotonic=False,
         num_samples=100,
     ):
-        """
-        Unified verification for both standard and monotonic networks
-        """
+        """Unified verification for both standard and monotonic networks"""
         counterexamples = []
         verification_results = {}
 
@@ -411,13 +408,14 @@ class LyapunovVerifier:
         return states
 
 
+# === Helper Functions for SMT Integration ===
 def augment_batch_with_counterexamples(batch, counterexamples, max_ce_ratio=0.3):
     """Add counter examples to training batch with ratio control"""
     if not counterexamples:
         return batch
 
-    batch_size = tf.shape(batch["state"])[0]
-    max_ce_count = int(batch_size * max_ce_ratio)
+    # Use fixed ratio instead of dynamic calculation to avoid tensor conversion issues
+    max_ce_count = min(len(counterexamples), 20)  # Max 20 counter examples per batch
 
     # Sample recent counter examples
     selected_ce = (
@@ -429,18 +427,36 @@ def augment_batch_with_counterexamples(batch, counterexamples, max_ce_ratio=0.3)
     if not selected_ce:
         return batch
 
-    # Convert counter examples to batch format
-    ce_states = tf.stack(
-        [tf.constant(ce["state"], dtype=tf.float32) for ce in selected_ce]
-    )
-    ce_setpoints = tf.stack(
-        [tf.constant(ce["setpoint"], dtype=tf.float32) for ce in selected_ce]
-    )
+    # Convert counter examples to batch format - handle different violation types
+    ce_states = []
+    ce_setpoints = []
+
+    for ce in selected_ce:
+        # Extract state - different violation types use different keys
+        if "state" in ce:
+            state = ce["state"]
+        elif "initial_state" in ce:
+            state = ce["initial_state"]
+        else:
+            continue  # Skip if no recognizable state key
+
+        # Extract setpoint
+        setpoint = ce.get("setpoint", np.array([0.0, 0.0, 0.0], dtype=np.float32))
+
+        ce_states.append(tf.constant(state, dtype=tf.float32))
+        ce_setpoints.append(tf.constant(setpoint, dtype=tf.float32))
+
+    if not ce_states:  # No valid counter examples found
+        return batch
+
+    # Stack and combine with original batch
+    ce_states_tensor = tf.stack(ce_states)
+    ce_setpoints_tensor = tf.stack(ce_setpoints)
 
     # Combine with original batch
     return {
-        "state": tf.concat([batch["state"], ce_states], axis=0),
-        "setpoint": tf.concat([batch["setpoint"], ce_setpoints], axis=0),
+        "state": tf.concat([batch["state"], ce_states_tensor], axis=0),
+        "setpoint": tf.concat([batch["setpoint"], ce_setpoints_tensor], axis=0),
     }
 
 
@@ -454,8 +470,15 @@ def compute_counterexample_penalty(
     penalties = []
 
     for ce in counterexamples[-50:]:  # Use recent counter examples
-        state = tf.constant(ce["state"], dtype=tf.float32)
-        setpoint = tf.constant(ce["setpoint"], dtype=tf.float32)
+        # Extract state - handle different violation types
+        if "state" in ce:
+            state = tf.constant(ce["state"], dtype=tf.float32)
+        elif "initial_state" in ce:
+            state = tf.constant(ce["initial_state"], dtype=tf.float32)
+        else:
+            continue  # Skip if no recognizable state key
+
+        setpoint = tf.constant(ce.get("setpoint", [0.0, 0.0, 0.0]), dtype=tf.float32)
         violation_type = ce["type"]
 
         state_batch = tf.expand_dims(state, 0)
@@ -473,6 +496,9 @@ def compute_counterexample_penalty(
             # Encourage decrease - use stored violation info
             required_decrease = 0.01  # Minimum required decrease
             penalty = tf.maximum(0.0, required_decrease - tf.abs(V_val))
+        elif violation_type == "trajectory_convergence":
+            # Penalty for trajectory convergence issues
+            penalty = tf.maximum(0.0, 0.1 - V_val)  # Should be small for convergence
         else:
             penalty = tf.abs(V_val) * 0.1  # Generic penalty
 
@@ -483,153 +509,157 @@ def compute_counterexample_penalty(
     return 0.0
 
 
-def enhanced_batch_value(
-    batch,
-    V_model,
-    actor_model,
-    dynamics_model,
-    counterexamples=None,
-    is_monotonic=False,
-    minN=3,
-    maxN=20,
+# === Import your existing functions from lyapunov_diff_robot.py ===
+
+
+def V_def(
+    state_shape: Tuple[int, ...],
+    use_monotonic: bool = False,
+    origin_stabilization: bool = False,
+    **monotonic_kwargs,
 ):
-    """Enhanced batch value computation with counter example penalties"""
+    """Enhanced Lyapunov Function Architecture for Differential Mobile Robot"""
 
-    # Your existing trajectory simulation code
-    repetitions = tf.random.uniform(
-        shape=[], minval=minN, maxval=maxN + 1, dtype=tf.dtypes.int32
-    )
-
-    prev_states = batch["state"]
-    set_points = batch["setpoint"]
-
-    # Forward simulation (simplified - use your existing run_full_model)
-    states = tf.TensorArray(tf.float32, size=repetitions, name="trajectory_storage")
-    current_states = prev_states
-
-    for i in range(repetitions):
-        control_action = actor_model(
-            {"state": current_states, "setpoint": set_points}, training=True
+    # For monotonic networks, force origin stabilization
+    if use_monotonic:
+        origin_stabilization = True
+        print("\n=== Creating Monotonic Lyapunov Network ===")
+        print("Mode: Error-State Stabilization V(state - setpoint)")
+        print(
+            "  • Can handle any setpoint by learning V(error) with error = state - setpoint"
         )
-
-        latent_shape = tuple(current_states.shape[0:1]) + tuple(
-            dynamics_model.input["latent"].shape[1:]
-        )
-        latent_noise = tf.random.normal(latent_shape, name="dynamics_noise")
-
-        current_states = dynamics_model(
-            {
-                "state": current_states,
-                "action": control_action,
-                "latent": latent_noise,
-            },
-            training=True,
-        )
-
-        states = states.write(i, current_states)
-
-    final_states = current_states
-
-    # Lyapunov evaluations
-    V_initial = V_model({"state": prev_states, "setpoint": set_points}, training=True)
-    V_final = V_model({"state": final_states, "setpoint": set_points}, training=True)
-    V_at_target = V_model({"state": set_points, "setpoint": set_points}, training=True)
-
-    # Core Lyapunov constraints
-    lyapunov_decrease = V_initial - V_final
-
-    # Distance calculations
-    initial_distances = euclidean_distance(prev_states, set_points)
-    final_distances = euclidean_distance(final_states, set_points)
-    proximity_to_target = tf.exp(-final_distances)
-
-    # Decrease requirement
-    repetitionsf = tf.cast(repetitions, tf.dtypes.float32)
-    decrease_rate = 1.0 / 50.0
-    required_decrease = tf.minimum(decrease_rate * repetitionsf, V_initial)
-
-    decrease_satisfaction = p_mean(
-        build_piecewise(
-            [
-                (-1.0, 0.0),
-                (-0.05, 0.001),
-                (0.0, 0.01),
-                (required_decrease, 0.9),
-                (1.0, 1.0),
-            ],
-            lyapunov_decrease,
-            clipped=True,
-        ),
-        -1.0,
-    )
-
-    # Performance metrics
-    v_dot_progress = tf.sigmoid(lyapunov_decrease * 10.0)
-
-    # Counter example penalty
-    ce_penalty = 0.0
-    if counterexamples:
-        ce_penalty = compute_counterexample_penalty(
-            V_model, actor_model, counterexamples
-        )
-
-    # Construct constraint hierarchy based on network type
-    if is_monotonic:
-        base_constraints = Constraints(
-            0.0,
-            {
-                "navigation_performance": Constraints(
-                    0.0,
-                    {
-                        "progress_reward": p_mean(v_dot_progress, 0),
-                        "target_proximity": p_mean(proximity_to_target, -2.0),
-                    },
-                ),
-                "lyapunov_conditions": Constraints(
-                    0.0,
-                    {
-                        "lyapunov_decrease": decrease_satisfaction,
-                    },
-                ),
-            },
-        )
+        print("  • Positive definiteness by construction")
+        print("  • Unique global minimum at error = 0")
+        print("  • Compatible with MILP verification")
     else:
-        # Standard networks need all constraints
-        zero_constraint = p_mean((1.0 - V_at_target**0.5), -1.0, default_val=1.0)
+        if origin_stabilization:
+            print("\n=== Creating Standard Neural Network (Error-State Mode) ===")
+            print("Mode: Error-State Stabilization V(state - setpoint)")
+            print("  • Networks see error state as input")
+            print("  • Can handle any setpoint")
+        else:
+            print("\n=== Creating Standard Neural Network (Multi-Target Mode) ===")
+            print("Mode: Concatenated input V([state, setpoint])")
+            print("  • Networks see full state and setpoint information")
 
-        target_distances = euclidean_distance(prev_states, set_points)
-        non_target_mask = tf.where(target_distances > 0.1, V_initial, 1.0)
-        positive_away_from_target = p_mean(tf.minimum(non_target_mask * 5.0, 1.0), 0.0)
+    # Default monotonic network parameters
+    default_monotonic_params = {
+        "num_layers": 2,
+        "directions_per_layer": None,  # Will auto-determine
+        "num_pieces": 4,
+        "name": "MonotonicLyapunovFunction",
+    }
 
-        base_constraints = Constraints(
-            0.0,
-            {
-                "navigation_performance": Constraints(
-                    0.0,
-                    {
-                        "progress_reward": p_mean(v_dot_progress, 0),
-                        "target_proximity": p_mean(proximity_to_target, -2.0),
-                    },
-                ),
-                "lyapunov_conditions": Constraints(
-                    0.0,
-                    {
-                        "zero_at_target": zero_constraint,
-                        "positive_elsewhere": positive_away_from_target,
-                        "lyapunov_decrease": decrease_satisfaction,
-                    },
-                ),
-            },
+    # Update with user-provided parameters
+    default_monotonic_params.update(monotonic_kwargs)
+
+    model = V_def_with_architecture_choice(
+        state_shape,
+        use_monotonic=use_monotonic,
+        origin_stabilization=origin_stabilization,
+        **default_monotonic_params,
+    )
+
+    if use_monotonic:
+        print(
+            f"Monotonic network created with {default_monotonic_params['num_layers']} layers"
+        )
+        print(
+            f"Each monotonic unit has {default_monotonic_params['num_pieces']} pieces"
         )
 
-    # Add counter example penalty to the objective
-    if ce_penalty > 0:
-        base_fulfillment = fpl_value(base_constraints)
-        # Penalty reduces the fulfillment value
-        enhanced_fulfillment = base_fulfillment - ce_penalty * 0.1  # Scale penalty
-        return enhanced_fulfillment, base_constraints
+    return model
 
-    return fpl_value(base_constraints), base_constraints
+
+def actor_def(state_shape, action_shape, origin_stabilization: bool = False):
+    """Control Policy Architecture for Differential Mobile Robot"""
+    input_state = keras.Input(shape=state_shape, name="robot_state")
+    input_set_point = keras.Input(shape=state_shape, name="control_target")
+
+    if origin_stabilization:
+        # For origin stabilization: use error state (state - setpoint)
+        error_state = layers.Subtract(name="error_state")(
+            [input_state, input_set_point]
+        )
+        network_input = error_state
+        print("Actor using ERROR-STATE input (state - setpoint)")
+    else:
+        # For multi-target: concatenate state and setpoint
+        network_input = layers.Concatenate(name="control_input_concat")(
+            [input_state, input_set_point]
+        )
+        print("Actor using CONCATENATED input [state, setpoint]")
+
+    dense1 = layers.Dense(
+        32,
+        activation="tanh",
+        kernel_regularizer=keras.regularizers.l2(0.01),
+        name="control_hidden_1",
+    )(network_input)
+
+    dense2 = layers.Dense(
+        16,
+        activation="tanh",
+        kernel_regularizer=keras.regularizers.l2(0.01),
+        name="control_hidden_2",
+    )(dense1)
+
+    prescaled = layers.Dense(
+        np.squeeze(action_shape),
+        activation="tanh",
+        kernel_regularizer=keras.regularizers.l2(0.01),
+        name="control_prescaled",
+    )(dense2)
+
+    outputs = prescaled * 2.0
+
+    model = keras.Model(
+        inputs={"state": input_state, "setpoint": input_set_point},
+        outputs=outputs,
+        name="DiffRobotControlPolicy",
+    )
+
+    print("\n=== Control Policy Architecture ===")
+    model.summary()
+    return model
+
+
+def generate_dataset(
+    env: gym.Env, origin_stabilization: bool = False, origin_setpoint: int = 0
+):
+    """Training Data Generation for Lyapunov-Based Control Learning"""
+
+    def gen_sample():
+        while True:
+            obs, _ = env.reset()
+            obs[0] = obs[0] * 3.0
+            obs[1] = obs[1] * 3.0
+
+            if origin_stabilization:
+                # set the target to always be at the setpoint
+                target_x = origin_setpoint[0]
+                target_y = origin_setpoint[1]
+                target_theta = origin_setpoint[2]
+            else:
+                # Random setpoint generation for multi-target mode
+                target_x = np.random.uniform(-4.0, 4.0)
+                target_y = np.random.uniform(-4.0, 4.0)
+                target_theta = np.random.uniform(-np.pi, np.pi)
+
+            yield {
+                "state": obs,
+                "setpoint": np.array([target_x, target_y, target_theta]),
+            }
+
+    return gen_sample
+
+
+def save_model(model, name):
+    """Model persistence with proper path handling"""
+    path = Path(args.ckpt_path.parent, name)
+    args.ckpt_path.parent.mkdir(parents=True, exist_ok=True)
+    print(f"Saving model to: {path}")
+    model.save(str(path))
 
 
 @tf.function
@@ -646,10 +676,11 @@ def euclidean_distance(state1, state2):
     return total_distance
 
 
+# === Enhanced Training Function with SMT Verification ===
+
+
 def train_with_smt_verification(batches, dynamics_model, actor, V, state_shape, args):
-    """
-    Enhanced training loop with SMT-based verification and counter-example guided refinement
-    """
+    """Enhanced training loop with SMT-based verification and counter-example guided refinement"""
 
     # Detect network architecture
     is_monotonic = "Monotonic" in V.name
@@ -678,21 +709,158 @@ def train_with_smt_verification(batches, dynamics_model, actor, V, state_shape, 
     print(f"{'='*80}")
 
     @tf.function
-    def train_step_with_ce(batch, counterexamples_tensor=None):
-        """Training step with counter example integration"""
-        with tf.GradientTape() as tape:
-            # Convert counterexamples to usable format if provided
-            fulfillment_value, objective_structure = enhanced_batch_value(
-                batch,
-                V,
-                actor,
-                dynamics_model,
-                counterexamples=counterexamples,  # Pass list directly
-                is_monotonic=is_monotonic,
-                minN=args.minN,
-                maxN=args.maxN,
+    def run_full_model(initial_states, set_points, repeat=1):
+        """Forward Trajectory Simulation"""
+        states = tf.TensorArray(tf.float32, size=repeat, name="trajectory_storage")
+        current_states = initial_states
+
+        for i in range(repeat):
+            control_action = actor(
+                {"state": current_states, "setpoint": set_points}, training=True
             )
 
+            latent_shape = tuple(current_states.shape[0:1]) + tuple(
+                dynamics_model.input["latent"].shape[1:]
+            )
+            latent_noise = tf.random.normal(latent_shape, name="dynamics_noise")
+
+            current_states = dynamics_model(
+                {
+                    "state": current_states,
+                    "action": control_action,
+                    "latent": latent_noise,
+                },
+                training=True,
+            )
+
+            states = states.write(i, current_states)
+
+        return current_states, tf.transpose(states.stack(), [1, 0, 2])
+
+    def batch_value(batch, minN=3, maxN=20):
+        """Enhanced Lyapunov Training Objective Computation with SMT integration"""
+        repetitions = tf.random.uniform(
+            shape=[],
+            minval=minN,
+            maxval=maxN + 1,
+            dtype=tf.dtypes.int32,
+        )
+
+        prev_states = batch["state"]
+        set_points = batch["setpoint"]
+
+        final_states, trajectory_states = run_full_model(
+            prev_states, set_points, repeat=repetitions
+        )
+
+        # Lyapunov function evaluation
+        V_initial = V({"state": prev_states, "setpoint": set_points}, training=True)
+        V_final = V({"state": final_states, "setpoint": set_points}, training=True)
+        V_at_target = V({"state": set_points, "setpoint": set_points}, training=True)
+
+        # Core constraints that apply to both architectures
+        lyapunov_decrease = V_initial - V_final
+
+        # Both modes measure distance to setpoint
+        initial_distances = euclidean_distance(prev_states, set_points)
+        final_distances = euclidean_distance(final_states, set_points)
+        proximity_to_target = tf.exp(-final_distances)
+
+        # Lyapunov decrease shaping
+        repetitionsf = tf.cast(repetitions, tf.dtypes.float32)
+        decrease_rate = 1.0 / 50.0
+        required_decrease = tf.minimum(decrease_rate * repetitionsf, V_initial)
+
+        decrease_satisfaction = p_mean(
+            build_piecewise(
+                [
+                    (-1.0, 0.0),
+                    (-0.05, 0.001),
+                    (0.0, 0.01),
+                    (required_decrease, 0.9),
+                    (1.0, 1.0),
+                ],
+                lyapunov_decrease,
+                clipped=True,
+            ),
+            -1.0,
+        )
+
+        # Performance metrics
+        v_dot_progress = tf.sigmoid(lyapunov_decrease * 10.0)
+
+        # Counter example penalty
+        ce_penalty = 0.0
+        if counterexamples:
+            ce_penalty = compute_counterexample_penalty(V, actor, counterexamples)
+
+        # Construct constraint hierarchy based on network type
+        if is_monotonic:
+            base_constraints = Constraints(
+                0.0,
+                {
+                    "navigation_performance": Constraints(
+                        0.0,
+                        {
+                            "progress_reward": p_mean(v_dot_progress, 0),
+                            "target_proximity": p_mean(proximity_to_target, -2.0),
+                        },
+                    ),
+                    "lyapunov_conditions": Constraints(
+                        0.0,
+                        {
+                            "lyapunov_decrease": decrease_satisfaction,
+                        },
+                    ),
+                },
+            )
+        else:
+            # Standard networks need all constraints
+            zero_constraint = p_mean((1.0 - V_at_target**0.5), -1.0, default_val=1.0)
+
+            target_distances = euclidean_distance(prev_states, set_points)
+            non_target_mask = tf.where(target_distances > 0.1, V_initial, 1.0)
+            positive_away_from_target = p_mean(
+                tf.minimum(non_target_mask * 5.0, 1.0), 0.0
+            )
+
+            base_constraints = Constraints(
+                0.0,
+                {
+                    "navigation_performance": Constraints(
+                        0.0,
+                        {
+                            "progress_reward": p_mean(v_dot_progress, 0),
+                            "target_proximity": p_mean(proximity_to_target, -2.0),
+                        },
+                    ),
+                    "lyapunov_conditions": Constraints(
+                        0.0,
+                        {
+                            "zero_at_target": zero_constraint,
+                            "positive_elsewhere": positive_away_from_target,
+                            "lyapunov_decrease": decrease_satisfaction,
+                        },
+                    ),
+                },
+            )
+
+        # Add counter example penalty to the objective
+        base_fulfillment = fpl_value(base_constraints)
+        if ce_penalty > 0:
+            # Penalty reduces the fulfillment value
+            enhanced_fulfillment = base_fulfillment - ce_penalty * 0.1  # Scale penalty
+            return enhanced_fulfillment, base_constraints
+
+        return base_fulfillment, base_constraints
+
+    @tf.function
+    def train_step_with_ce(batch):
+        """Training step with counter example integration"""
+        with tf.GradientTape() as tape:
+            fulfillment_value, objective_structure = batch_value(
+                batch, args.minN, args.maxN
+            )
             loss = 1.0 - fulfillment_value
 
         trainable_parameters = actor.trainable_weights + V.trainable_weights
@@ -849,9 +1017,7 @@ def train_with_smt_verification(batches, dynamics_model, actor, V, state_shape, 
 
 
 if __name__ == "__main__":
-    """
-    Enhanced Main Training Script with SMT Verification
-    """
+    """Enhanced Main Training Script with SMT Verification"""
     parser = argparse.ArgumentParser(
         description="Lyapunov-based control learning with SMT verification"
     )
@@ -928,7 +1094,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    # Setup and initialization (use your existing code)
+    # Setup and initialization
     if args.ckpt_path is None:
         args.ckpt_path = utils.latest_model()
         print(f"Auto-detected model path: {args.ckpt_path}")
@@ -941,7 +1107,7 @@ if __name__ == "__main__":
     print(f"Environment: {env_name}")
     print(f"State shape: {state_shape}, Action shape: {action_shape}")
 
-    # Load or create models (use your existing code)
+    # Load or create models
     dynamics_model = utils.load_checkpoint(args.ckpt_path)
 
     if args.load_saved:
@@ -962,7 +1128,7 @@ if __name__ == "__main__":
             num_pieces=args.monotonic_pieces,
         )
 
-    # Create dataset (use your existing code)
+    # Create dataset
     state_spec = tf.TensorSpec(state_shape, dtype=tf.float32)
     dataset_signature = {"state": state_spec, "setpoint": state_spec}
 
