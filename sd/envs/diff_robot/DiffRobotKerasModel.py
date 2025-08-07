@@ -17,6 +17,37 @@ def differential_robot_difference_eq(states, actions):
     max_linear_vel = 2.0  # Maximum linear velocity (m/s)
     max_angular_vel = 2.0  # Maximum angular velocity (rad/s)
 
+    # Trapezoidal environment bounds
+    x_min = -3.0  # Left boundary
+    x_max = 3.0  # Right boundary
+    y_min = -2.0  # Bottom boundary
+    y_max = 2.0  # Top boundary
+
+    # Trapezoid parameters (assuming bottom wider than top)
+    bottom_width = 6.0  # Width at y_min
+    top_width = 4.0  # Width at y_max
+
+    def get_trapezoid_x_bounds(y):
+        """Get x bounds for given y coordinate in trapezoid"""
+        # Linear interpolation between bottom and top widths
+        y_normalized = (y - y_min) / (y_max - y_min)
+        current_width = bottom_width - (bottom_width - top_width) * y_normalized
+        half_width = current_width / 2.0
+        return -half_width, half_width
+
+    def enforce_trapezoid_bounds(x, y):
+        """Ensure (x,y) stays within trapezoidal bounds"""
+        # Clip y to vertical bounds
+        y_clipped = tf.clip_by_value(y, y_min, y_max)
+
+        # Get x bounds for current y
+        x_left, x_right = get_trapezoid_x_bounds(y_clipped)
+
+        # Clip x to trapezoid bounds at current y
+        x_clipped = tf.clip_by_value(x, x_left, x_right)
+
+        return x_clipped, y_clipped
+
     # Extract current state components
     x = tf.reshape(states[:, 0], (-1, 1))  # x position
     y = tf.reshape(states[:, 1], (-1, 1))  # y position
@@ -38,6 +69,9 @@ def differential_robot_difference_eq(states, actions):
     new_x = x + v * tf.cos(theta) * dt
     new_y = y + v * tf.sin(theta) * dt
     new_theta = theta + w * dt
+
+    # Enforce trapezoidal boundary constraints
+    new_x, new_y = enforce_trapezoid_bounds(new_x, new_y)
 
     # Normalize theta to [-pi, pi] to prevent angle wrap-around issues
     new_theta = tf.atan2(tf.sin(new_theta), tf.cos(new_theta))

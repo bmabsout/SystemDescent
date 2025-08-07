@@ -1,5 +1,17 @@
 from gymnasium.envs.registration import register
 
+register(
+    id="DiffRobotTrapezoid-v1",
+    entry_point="sd.envs.diff_robot.Trapezoid.diff_robot_env:DiffRobotEnv",
+    max_episode_steps=500,
+    kwargs={"max_vel": 2.0, "dt": 0.05},  # Default parameters
+)
+
+register(
+    id="ModeledDiffRobotTrapezoid-v1",
+    entry_point="sd.envs.diff_robot.Trapezoid.Modeled_diff_robot_env:ModeledDiffRobotEnv",
+    max_episode_steps=500,
+)
 
 register(
     id="DiffRobot-v1",
